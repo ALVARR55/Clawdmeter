@@ -53,6 +53,59 @@ API_BODY = {
     "messages": [{"role": "user", "content": "hi"}],
 }
 
+# --- Real $ spend (Enterprise "Period" box) ---------------------------------
+#
+# Claude Code's own `/usage` command reads spend from this OAuth endpoint, using
+# the same access token the daemon already has. `spend.used` is the figure the
+# claude.ai / Claude Desktop "Usage" tab shows for the current billing cycle, so
+# we relay it instead of estimating from local transcripts x published prices —
+# that estimate could only see Claude Code on this machine and ran ~40% low
+# against real usage (phone/desktop chat never touches local transcripts).
+OAUTH_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+
+_last_spend_usd: float | None = None   # last good value, replayed over a transient fetch failure
+
+
+def _parse_spend_usd(body: dict) -> float | None:
+    """`spend.used` -> dollars, or None when the response has no usable spend.
+    Amounts arrive as integer minor units plus an exponent ({"amount_minor":
+    69986, "exponent": 2} == $699.86), so nothing is lost to float on the wire."""
+    used = (body.get("spend") or {}).get("used") or {}
+    amount = used.get("amount_minor")
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+        return None
+    exponent = used.get("exponent", 2)
+    if isinstance(exponent, bool) or not isinstance(exponent, int):
+        exponent = 2
+    return amount / (10 ** exponent)
+
+
+async def fetch_spend_usd(token: str) -> float | None:
+    """Current-cycle spend in USD from OAUTH_USAGE_URL. Never raises: on any
+    failure it returns the last good value (None if there has never been one)
+    so the device doesn't flash "---" over a network blip. Auth failures are
+    left to poll_api's /v1/messages probe, which already raises TokenExpired."""
+    global _last_spend_usd
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "anthropic-beta": API_HEADERS_TEMPLATE["anthropic-beta"],
+        "User-Agent": API_HEADERS_TEMPLATE["User-Agent"],
+        "Accept": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as http:
+            resp = await http.get(OAUTH_USAGE_URL, headers=headers)
+        resp.raise_for_status()
+        spend = _parse_spend_usd(resp.json())
+    except (httpx.HTTPError, ValueError) as e:
+        log(f"Spend fetch failed: {e}; reusing last value")
+        return _last_spend_usd
+    if spend is None:
+        log("Spend fetch: no spend.used in response; reusing last value")
+        return _last_spend_usd
+    _last_spend_usd = spend
+    return spend
+
 
 class TokenExpired(Exception):
     """Raised by poll_api on a 401/403 — the access token is dead. The daemon never
@@ -404,7 +457,7 @@ def add_clock_fields(payload: dict) -> None:
     payload["tf"] = tf
 
 
-async def poll_api(token: str) -> dict | None:
+async def poll_api(token: str, config_dir: Path = DEFAULT_CONFIG_DIR) -> dict | None:
     headers = dict(API_HEADERS_TEMPLATE)
     headers["Authorization"] = f"Bearer {token}"
     try:
@@ -463,13 +516,21 @@ async def poll_api(token: str) -> dict | None:
             **_billing_period_info(now, reset_ts),
             "ok": True,
         }
+        bounds = _period_bounds(reset_ts)
+        if bounds is not None:
+            payload["tok"] = count_tokens_since(bounds[0], config_dir)
+        spend = await fetch_spend_usd(token)
+        if spend is not None:
+            payload["cost"] = round(spend, 2)
     add_chime_field(payload)   # adds "c":1 iff the config opts in
     add_clock_fields(payload)   # adds "t" + "tf" iff the config opts in
     return payload
 
 
-def _billing_period_info(now: float, reset_ts: str) -> dict:
-    """Fraction of billing period elapsed (tp, 0-100) and period length in days (pd).
+def _period_bounds(reset_ts: str) -> tuple[float, float] | None:
+    """(period_start, period_end) epoch seconds for the Enterprise billing period,
+    or None if `reset_ts` isn't usable. Shared by `_billing_period_info` and the
+    local token counter below, so both agree on what "this billing period" means.
 
     Billing periods are assumed calendar-monthly: period_end is the reset
     timestamp, period_start is the same day/time one calendar month earlier.
@@ -483,30 +544,112 @@ def _billing_period_info(now: float, reset_ts: str) -> dict:
     try:
         period_end = float(reset_ts)
     except ValueError:
-        return {"tp": 0, "pd": 30}
+        return None
     if period_end <= 0:
         # reset_ts defaults to "0" when the overage-reset header is absent.
         # fromtimestamp(0) is 1970; stepping a month back lands in 1969, and
         # datetime.timestamp() raises OSError for pre-1970 dates on Windows.
         # Benign on macOS/Linux, but guard here too to keep the daemons parallel.
-        return {"tp": 0, "pd": 30}
+        return None
     dt_end = datetime.datetime.fromtimestamp(period_end)
     prev_month = dt_end.month - 1 or 12
     prev_year = dt_end.year if dt_end.month > 1 else dt_end.year - 1
     prev_day = min(dt_end.day, calendar.monthrange(prev_year, prev_month)[1])
     dt_start = dt_end.replace(year=prev_year, month=prev_month, day=prev_day)
     period_start = dt_start.timestamp()
-    period_len = period_end - period_start
-    if period_len <= 0:
+    if period_end - period_start <= 0:
+        return None
+    return period_start, period_end
+
+
+def _billing_period_info(now: float, reset_ts: str) -> dict:
+    """Fraction of billing period elapsed (tp, 0-100) and period length in days (pd)."""
+    bounds = _period_bounds(reset_ts)
+    if bounds is None:
         return {"tp": 0, "pd": 30}
+    period_start, period_end = bounds
+    period_len = period_end - period_start
     pct_val = (now - period_start) / period_len * 100
     total_days = int(round(period_len / 86400))
+    dt_end = datetime.datetime.fromtimestamp(period_end)
     rd = f"{dt_end.strftime('%b')} {dt_end.day}"
     return {
         "tp": max(0, min(100, int(round(pct_val)))),
         "pd": total_days,
         "rd": rd,
     }
+
+
+def count_tokens_since(period_start: float, config_dir: Path) -> int:
+    """Tokens (input + output + cache write + cache read) from this config dir's
+    local Claude Code transcripts (`<config_dir>/projects/**/*.jsonl` —
+    recursive, so subagent transcripts under `<session>/subagents/` count too)
+    since `period_start`. Pure local file read — no network, no API key.
+
+    Approximates "tokens used this billing period" from what Claude Code itself
+    logged on this machine; it can't see other machines, chat usage, or
+    transcripts Claude Code has already pruned. Real $ spend comes from
+    fetch_spend_usd, not from here.
+    """
+    total_tokens = 0
+    seen_message_ids: set[str] = set()
+    projects_dir = config_dir / "projects"
+    if not projects_dir.is_dir():
+        return 0
+    # rglob, not glob("*/*.jsonl"): subagent (Task tool) transcripts live one level
+    # deeper, at <project>/<session>/subagents/agent-*.jsonl. A shallow glob misses
+    # every subagent's real, separately-billed token usage entirely.
+    for jsonl_path in projects_dir.rglob("*.jsonl"):
+        try:
+            if jsonl_path.stat().st_mtime < period_start:
+                continue  # whole file predates the period — skip parsing it
+        except OSError:
+            continue
+        try:
+            with jsonl_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if entry.get("type") != "assistant":
+                        continue
+                    ts = entry.get("timestamp")
+                    if not ts:
+                        continue
+                    try:
+                        entry_epoch = datetime.datetime.strptime(
+                            ts[:19], "%Y-%m-%dT%H:%M:%S"
+                        ).replace(tzinfo=datetime.timezone.utc).timestamp()
+                    except ValueError:
+                        continue
+                    if entry_epoch < period_start:
+                        continue
+                    msg = entry.get("message") or {}
+                    mid = msg.get("id")
+                    if mid:
+                        # Claude Code logs one JSONL line per content block of a
+                        # multi-tool-call response (apiBlockIndex 0, 1, 2, ...),
+                        # but every line repeats the SAME message-level `usage`
+                        # (usage belongs to the whole API response, not a block).
+                        # Counting every line multiplies tokens/cost by the
+                        # number of tool calls in the turn — dedupe on message id.
+                        if mid in seen_message_ids:
+                            continue
+                        seen_message_ids.add(mid)
+                    usage = msg.get("usage") or {}
+                    total_tokens += (
+                        usage.get("input_tokens", 0)
+                        + usage.get("output_tokens", 0)
+                        + usage.get("cache_creation_input_tokens", 0)
+                        + usage.get("cache_read_input_tokens", 0)
+                    )
+        except OSError:
+            continue
+    return total_tokens
 
 
 class PlanSelector:
@@ -563,7 +706,7 @@ async def poll_active(selector: PlanSelector = _SELECTOR) -> tuple[dict | None, 
             log(f"No token in {d}; skipping")
             continue
         try:
-            payload = await poll_api(token)
+            payload = await poll_api(token, d)
         except TokenExpired:
             log(f"Token in {d} expired/invalid; skipping")
             continue

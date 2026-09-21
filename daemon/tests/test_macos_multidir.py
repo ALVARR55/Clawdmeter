@@ -141,7 +141,7 @@ def test_poll_active_payload_picks_active_and_skips_tokenless(monkeypatch):
     monkeypatch.setattr(mod, "read_config_dirs", lambda: dirs)
     monkeypatch.setattr(mod, "read_token_for", lambda d: {A: "tA", B: None}[d])  # B has no token
 
-    async def fake_poll(token):
+    async def fake_poll(token, config_dir=None):
         return {"s": 25, "ok": True} if token == "tA" else None
 
     sel = PlanSelector()
@@ -161,7 +161,7 @@ def test_poll_active_payload_selects_higher_util_plan(monkeypatch):
     monkeypatch.setattr(mod, "read_config_dirs", lambda: [A, B])
     monkeypatch.setattr(mod, "read_token_for", lambda d: {A: "tA", B: "tB"}[d])
 
-    async def fake_poll(token):
+    async def fake_poll(token, config_dir=None):
         return {"s": 12, "ok": True} if token == "tA" else {"s": 40, "ok": True}
 
     with patch.object(mod, "poll_api", new=AsyncMock(side_effect=fake_poll)):

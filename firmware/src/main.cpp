@@ -117,6 +117,8 @@ static bool parse_json(const char* json, UsageData* out) {
     out->time_pct = doc["tp"] | 0;
     out->period_days = doc["pd"] | 30;
     strlcpy(out->reset_date, doc["rd"] | "", sizeof(out->reset_date));
+    out->tokens_used = doc["tok"] | (int64_t)0;
+    out->cost_usd = doc["cost"] | -1.0f;   // absent → negative → UI shows "---", not "$0"
     out->clock_epoch = doc["t"] | 0L;
     out->clock_fmt = doc["tf"] | 24;
     out->ok = doc["ok"] | false;

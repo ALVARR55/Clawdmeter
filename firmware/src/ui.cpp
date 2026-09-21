@@ -212,8 +212,7 @@ static lv_obj_t* lbl_weekly_reset;
 static lv_obj_t* panel_session = nullptr;
 static lv_obj_t* panel_weekly = nullptr;
 // Enterprise-only widgets inside panel_session
-static lv_obj_t* lbl_session_pct_sym = nullptr;  // "%" in smaller font
-static lv_obj_t* lbl_spending_desc = nullptr;     // "of your monthly budget"
+static lv_obj_t* lbl_spending_desc = nullptr;     // "used this billing period"
 static lv_obj_t* lbl_spending_status = nullptr;   // "Under pace" / "On pace" / "Over pace"
 static lv_obj_t* lbl_anim;      // status line: connection state + whimsical idle
 
@@ -297,6 +296,31 @@ static lv_color_t pct_color(float pct) {
     if (pct >= 80.0f) return COL_RED;
     if (pct >= 50.0f) return COL_AMBER;
     return COL_GREEN;
+}
+
+// $ spent for the Enterprise Period box's big number: "$700", or "---" when the
+// daemon hasn't been able to fetch it yet (cost_usd < 0).
+static void format_cost_usd(float cost, char* buf, size_t len) {
+    if (cost < 0.0f) {
+        snprintf(buf, len, "---");
+    } else {
+        snprintf(buf, len, "$%.0f", cost);
+    }
+}
+
+// Compact token count for the big Enterprise number: "950", "4.2K", "1.8M", "2.1B".
+// Heavy Claude Code use racks up billions of tokens once cache-read tokens (the
+// context re-sent every turn) are counted, so this needs a "B" tier, not just K/M.
+static void format_token_count(int64_t tokens, char* buf, size_t len) {
+    if (tokens < 1000) {
+        snprintf(buf, len, "%lld", (long long)tokens);
+    } else if (tokens < 1000000) {
+        snprintf(buf, len, "%.1fK", tokens / 1000.0);
+    } else if (tokens < 1000000000LL) {
+        snprintf(buf, len, "%.1fM", tokens / 1000000.0);
+    } else {
+        snprintf(buf, len, "%.1fB", tokens / 1000000000.0);
+    }
 }
 
 static void format_reset_time(int mins, char* buf, size_t len) {
@@ -502,15 +526,9 @@ static void init_usage_screen(lv_obj_t* scr) {
                      &lbl_session_pct, &lbl_session_label,
                      &bar_session, &lbl_session_reset);
 
-    // Enterprise-only overlays inside panel_session — hidden until enterprise data arrives
-    lbl_session_pct_sym = lv_label_create(panel_session);
-    lv_label_set_text(lbl_session_pct_sym, "%");
-    lv_obj_set_style_text_font(lbl_session_pct_sym, L.reset_font, 0);
-    lv_obj_set_style_text_color(lbl_session_pct_sym, COL_TEXT, 0);
-    lv_obj_add_flag(lbl_session_pct_sym, LV_OBJ_FLAG_HIDDEN);
-
+    // Enterprise-only overlay inside panel_session — hidden until enterprise data arrives
     lbl_spending_desc = lv_label_create(panel_session);
-    lv_label_set_text(lbl_spending_desc, "of your monthly budget");
+    lv_label_set_text(lbl_spending_desc, "used this billing period");
     lv_obj_set_style_text_font(lbl_spending_desc, L.reset_font, 0);
     lv_obj_set_style_text_color(lbl_spending_desc, COL_DIM, 0);
     lv_obj_set_pos(lbl_spending_desc, 0, L.usage_reset_y);
@@ -610,11 +628,13 @@ void ui_update(const UsageData* data) {
     int s_pct = (int)(data->session_pct + 0.5f);
 
     if (data->enterprise) {
-        // Spending box: big number-only label + small "%" symbol + desc + pace
+        // Tokens box: big number-only label (compact K/M) + desc + pace
         lv_obj_set_style_text_font(lbl_session_pct, L.ent_pct_font, 0);
-        lv_label_set_text(lbl_session_label, "Spending");
+        lv_label_set_text(lbl_session_label, "Tokens");
         lv_obj_add_flag(lbl_session_reset, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(lbl_session_pct_sym, LV_OBJ_FLAG_HIDDEN);
+        // No spend cap → nothing for a token bar to fill toward; the header %
+        // that used to drive it is pinned at 0 on unlimited-spend accounts.
+        lv_obj_add_flag(bar_session, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(lbl_spending_desc,   LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(lbl_spending_status,   LV_OBJ_FLAG_HIDDEN);
         if (panel_weekly) lv_obj_clear_flag(panel_weekly, LV_OBJ_FLAG_HIDDEN);
@@ -622,7 +642,7 @@ void ui_update(const UsageData* data) {
         lv_obj_set_style_text_font(lbl_session_pct, L.pct_font, 0);
         lv_label_set_text(lbl_session_label, "Current");
         lv_obj_clear_flag(lbl_session_reset, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(lbl_session_pct_sym, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(bar_session, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(lbl_spending_desc,   LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(lbl_spending_status, LV_OBJ_FLAG_HIDDEN);
         if (panel_weekly) lv_obj_clear_flag(panel_weekly, LV_OBJ_FLAG_HIDDEN);
@@ -630,20 +650,10 @@ void ui_update(const UsageData* data) {
 
     char buf[48];
 
-    // Pace vars used in both enterprise blocks below
-    const char* pace_text = "Under pace";
-    lv_color_t  pace_color = COL_GREEN;
-    const char* pace_hex   = "788c5d";   // matches THEME_GREEN
-    if (data->session_pct > (float)data->time_pct + 15.0f) {
-        pace_text = "Over pace";  pace_color = COL_RED;   pace_hex = "c0392b";
-    } else if (data->session_pct > (float)data->time_pct - 15.0f) {
-        pace_text = "On pace";    pace_color = COL_AMBER; pace_hex = "d97757";
-    }
-
     if (data->enterprise) {
-        lv_label_set_text_fmt(lbl_session_pct, "%d", s_pct);
-        lv_obj_align_to(lbl_session_pct_sym, lbl_session_pct,
-                        LV_ALIGN_OUT_RIGHT_TOP, 4, 12);
+        char tok_buf[16];
+        format_token_count(data->tokens_used, tok_buf, sizeof(tok_buf));
+        lv_label_set_text(lbl_session_pct, tok_buf);
     } else {
         lv_label_set_text_fmt(lbl_session_pct, "%d%%", s_pct);
         format_reset_time(data->session_reset_mins, buf, sizeof(buf));
@@ -654,16 +664,20 @@ void ui_update(const UsageData* data) {
     lv_obj_set_style_bg_color(bar_session, pct_color(data->session_pct), LV_PART_INDICATOR);
 
     if (data->enterprise) {
-        // Period box: time % + dynamic pace color + "Resets <date>" label
+        // Period box: $ spent this cycle (big number) over a how-far-through-the-
+        // cycle bar, captioned so the bar reads as calendar progress, not spend.
+        // Spend beside elapsed fraction is what lets you eyeball burn rate.
         lv_label_set_text(lbl_weekly_label, "Period");
-        lv_label_set_text_fmt(lbl_weekly_pct, "%d%%", data->time_pct);
+        char cost_buf[16];
+        format_cost_usd(data->cost_usd, cost_buf, sizeof(cost_buf));
+        lv_label_set_text(lbl_weekly_pct, cost_buf);
         lv_bar_set_value(bar_weekly, data->time_pct, LV_ANIM_ON);
-        lv_color_t bar_pace = (data->session_pct <= (float)data->time_pct) ? COL_GREEN :
-                              (data->session_pct <= (float)data->time_pct + 15.0f) ? COL_AMBER :
-                              COL_RED;
-        lv_obj_set_style_bg_color(bar_weekly, bar_pace, LV_PART_INDICATOR);
-        snprintf(buf, sizeof(buf), "#%s %s# - #faf9f5 Resets %s#",
-                 pace_hex, pace_text, data->reset_date);
+        lv_obj_set_style_bg_color(bar_weekly, COL_ACCENT, LV_PART_INDICATOR);
+        int day = (data->time_pct * data->period_days + 50) / 100;
+        if (day < 1) day = 1;
+        if (day > data->period_days) day = data->period_days;
+        snprintf(buf, sizeof(buf), "Day %d of %d - Resets %s",
+                 day, data->period_days, data->reset_date);
         lv_label_set_text(lbl_weekly_reset, buf);
     } else {
         int w_pct = (int)(data->weekly_pct + 0.5f);
