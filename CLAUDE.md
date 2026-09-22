@@ -129,7 +129,7 @@ pio run -d firmware -e waveshare_amoled_216 -t upload --upload-port /dev/ttyACM0
 
 If `pio` isn't on PATH: try `~/.platformio/penv/bin/pio` (Linux/macOS pio install) or `brew install platformio` on macOS.
 
-**Releases (this fork):** pushing a `v*` tag runs `.github/workflows/release.yml`, which builds every hardware env's `firmware.factory.bin` (merged image, flash at 0x0) and packages the macOS daemon (`clawdmeter-daemon-macos.tar.gz` + `install-from-release.sh`). Asset names are stable so `flash-release.sh` / the README one-liner can fetch `releases/latest/download/<name>`. Cut a release with `git tag vX.Y.Z && git push fork vX.Y.Z`.
+**Releases (this fork):** pushing a `v*` tag runs `.github/workflows/release.yml`, which builds every hardware env's `firmware.factory.bin` (merged image, flash at 0x0) and packages the macOS daemon (`clawdmeter-daemon-macos.tar.gz` + `install-from-release.sh`). Asset names are stable so `flash-release.sh` / the README one-liner can fetch `releases/latest/download/<name>`. Cut a release with `git tag vX.Y.Z && git push fork vX.Y.Z`. A Homebrew tap lives in the separate repo `ALVARR55/homebrew-clawdmeter` (`Formula/clawdmeter.rb` + `update-formula.yml`, which bumps url/version/sha256 to the latest release every 30 min or on `workflow_dispatch`); the release workflow's optional `tap` job triggers it immediately when a `TAP_TOKEN` secret exists. GitHub disables scheduled workflows in repos idle >60 days — if a release doesn't reach brew, run the tap workflow by hand.
 
 Device path differs by OS: `/dev/cu.usbmodem*` on macOS, `/dev/ttyACM0` on Linux. Both expose the ESP32-S3 native USB-JTAG (no boot-mode dance needed).
 

@@ -66,6 +66,17 @@ That downloads the daemon into `~/.clawdmeter`, creates its Python venv, registe
 cd ~/.clawdmeter && ./flash-release.sh waveshare_amoled_216_c6     # or any board env
 ```
 
+**Or with Homebrew** (same result, and `brew upgrade` keeps it current):
+
+```bash
+brew install ALVARR55/clawdmeter/clawdmeter
+clawdmeter-daemon               # run once in the foreground: click Allow on the Bluetooth prompt, then Ctrl-C
+brew services start clawdmeter  # login service from here on; logs in $(brew --prefix)/var/log/clawdmeter.log
+clawdmeter-flash waveshare_amoled_216_c6   # optional: flash the matching release firmware
+```
+
+If you previously installed from a checkout or the release tarball, stop that LaunchAgent first so two daemons don't fight over the board: `launchctl unload ~/Library/LaunchAgents/com.user.claude-usage-daemon.plist`. The tap ([ALVARR55/homebrew-clawdmeter](https://github.com/ALVARR55/homebrew-clawdmeter)) bumps its formula to each new release automatically.
+
 Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml) on every `v*` tag. The steps below are the from-source equivalent.
 
 ### Flash the firmware

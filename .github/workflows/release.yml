@@ -90,3 +90,23 @@ jobs:
             gh release create "$GITHUB_REF_NAME" artifacts/* --repo "$GITHUB_REPOSITORY" \
               --title "$GITHUB_REF_NAME" --generate-notes
           fi
+
+  # The Homebrew tap (ALVARR55/homebrew-clawdmeter) bumps its formula to the
+  # latest release on its own 30-minute schedule. With a TAP_TOKEN secret
+  # (a fine-grained PAT with contents:write + actions:write on the tap repo)
+  # this job triggers that bump immediately instead. Optional by design: the
+  # default GITHUB_TOKEN can't reach another repo.
+  tap:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+    steps:
+      - name: Trigger the tap's formula bump now
+        if: env.TAP_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: gh workflow run update-formula.yml -R ALVARR55/homebrew-clawdmeter
+      - name: No TAP_TOKEN — tap will self-update within 30 minutes
+        if: env.TAP_TOKEN == ''
+        run: echo "TAP_TOKEN secret not set; ALVARR55/homebrew-clawdmeter picks up ${GITHUB_REF_NAME} on its schedule."

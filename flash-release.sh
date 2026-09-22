@@ -51,9 +51,10 @@ if [ -z "$PORT" ]; then
     fi
 fi
 
-# esptool needs Python >= 3.10. Prefer the daemon venv (install-mac.sh made it
-# with a new-enough interpreter); otherwise make a small one next to this script.
-PY="$SCRIPT_DIR/daemon/.venv/bin/python"
+# esptool needs Python >= 3.10. Prefer an explicit CLAWDMETER_PYTHON (the
+# Homebrew wrapper sets it to the formula's venv), then the daemon venv
+# install-mac.sh made; otherwise make a small one next to this script.
+PY="${CLAWDMETER_PYTHON:-$SCRIPT_DIR/daemon/.venv/bin/python}"
 if [ ! -x "$PY" ]; then
     py_ge_310() { "$1" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; }
     PYTHON3=""
