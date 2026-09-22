@@ -312,7 +312,9 @@ static void format_cost_usd(float cost, char* buf, size_t len) {
 // Heavy Claude Code use racks up billions of tokens once cache-read tokens (the
 // context re-sent every turn) are counted, so this needs a "B" tier, not just K/M.
 static void format_token_count(int64_t tokens, char* buf, size_t len) {
-    if (tokens < 1000) {
+    if (tokens < 0) {
+        snprintf(buf, len, "---");   // daemon didn't send "tok"
+    } else if (tokens < 1000) {
         snprintf(buf, len, "%lld", (long long)tokens);
     } else if (tokens < 1000000) {
         snprintf(buf, len, "%.1fK", tokens / 1000.0);

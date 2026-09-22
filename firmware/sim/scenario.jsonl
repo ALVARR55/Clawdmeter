@@ -7,5 +7,6 @@
 {"name":"maxed out","hold_ms":4000,"s":98.0,"sr":12,"w":88.0,"wr":5200,"st":"limited","ok":true}
 {"name":"session reset + chime","hold_ms":4000,"s":2.0,"sr":298,"w":88.0,"wr":5100,"st":"allowed","c":true,"ok":true}
 {"name":"weekly nearly gone","hold_ms":3000,"s":25.0,"sr":250,"w":96.0,"wr":300,"st":"allowed","ok":true}
-{"name":"enterprise on pace","hold_ms":3000,"s":37.0,"sr":-1,"acct":"ent","tp":40,"pd":30,"rd":"Aug 15","st":"allowed","ok":true}
-{"name":"enterprise over pace","hold_ms":4000,"s":88.0,"sr":-1,"acct":"ent","tp":52,"pd":30,"rd":"Aug 15","st":"allowed","ok":true}
+{"name":"enterprise mid-cycle","hold_ms":3000,"s":0,"sr":-1,"acct":"ent","tp":40,"pd":30,"rd":"Aug 15","tok":152000000,"cost":301.42,"st":"allowed","ok":true}
+{"name":"enterprise heavy month","hold_ms":4000,"s":0,"sr":-1,"acct":"ent","tp":71,"pd":31,"rd":"Sep 30","tok":393751300,"cost":702.69,"st":"allowed","ok":true}
+{"name":"enterprise before first spend fetch","hold_ms":2000,"s":0,"sr":-1,"acct":"ent","tp":3,"pd":31,"rd":"Oct 31","tok":2400000,"st":"allowed","ok":true}

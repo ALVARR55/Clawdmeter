@@ -14,10 +14,12 @@ Shift+Tab over BLE HID for Claude Code's voice mode and mode-toggle shortcuts.
 
 The device boots into the splash. Tap the screen anywhere to switch to the Usage view; tap again to flip back to the splash.
 
-|              Splash               |              Usage              |
-| :-------------------------------: | :-----------------------------: |
-| ![Splash](screenshots/splash.gif) | ![Usage](screenshots/usage.png) |
-|   Splash; touch-toggle anytime    | Session and weekly utilization  |
+|              Splash               |          Usage (Pro / Max)          |             Usage (Enterprise)              |
+| :-------------------------------: | :---------------------------------: | :-----------------------------------------: |
+| ![Splash](screenshots/splash.gif) |   ![Usage](screenshots/usage.png)   | ![Enterprise](assets/demo-enterprise.png)   |
+|   Splash; touch-toggle anytime    |   Session and weekly utilization    | Tokens this cycle and real $ spent          |
+
+Pro and Max seats show the two rate-limit windows. Enterprise seats with a usage-based (unlimited-spend) plan have no window to show a percentage of, so the boxes switch to **Tokens** — tokens used this billing cycle, summed from your local Claude Code transcripts — and **Period** — the dollar figure from the Claude Desktop *Usage* tab, over a day-of-cycle bar. Both show `---` until the daemon has sent them (currently the macOS daemon).
 
 While the splash is up, the middle (PWR) button cycles animations. **Hold the power button for 3 seconds, then release, to put the device into pairing mode** — this clears the saved Bluetooth bond and re-advertises. The firmware also auto-rotates animations every 20 s within the current usage-rate group, so a long stretch on the splash isn't just one Clawd on loop.
 
@@ -196,6 +198,7 @@ reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v Clawdmeter /f
 1. The daemon reads your Claude Code OAuth token — from the macOS Keychain (service `Claude Code-credentials`) on macOS, or from `~/.claude/.credentials.json` on Linux (`%USERPROFILE%\.claude\.credentials.json` on Windows).
 2. It makes a minimal API call to `api.anthropic.com/v1/messages` — one token of Haiku, basically free.
 3. The usage numbers come straight out of the response headers (`anthropic-ratelimit-unified-5h-utilization` and friends).
+   On Enterprise seats those headers only carry a spend-limit percentage, which is pinned at 0 when the limit is unlimited — so the macOS daemon also asks `api.anthropic.com/api/oauth/usage` (the endpoint behind Claude Code's `/usage` command, same token) for `spend.used`, and sums the `usage` blocks in `~/.claude/projects/**/*.jsonl` for a token count.
 4. The daemon connects to the ESP32 over BLE and writes a JSON payload to the GATT RX characteristic.
 5. The firmware parses it and updates the LVGL dashboard.
 6. The firmware also tracks the rate of change of session % over a 5-minute window and picks splash animations from the matching mood group.
@@ -227,10 +230,19 @@ The device advertises a custom GATT service alongside the standard HID keyboard 
 JSON payload format (written to RX):
 
 ```json
-{ "s": 45, "sr": 120, "w": 28, "wr": 7200, "st": "allowed", "ok": true }
+{ "s": 45, "sr": 120, "w": 28, "wr": 7200, "st": "allowed", "acct": "pro", "ok": true }
 ```
 
-Fields: `s` = session %, `sr` = session reset (minutes), `w` = weekly %, `wr` = weekly reset (minutes), `st` = status, `ok` = success flag.
+Fields: `s` = session %, `sr` = session reset (minutes), `w` = weekly %, `wr` = weekly reset (minutes), `st` = status, `acct` = `"pro"` or `"ent"`, `ok` = success flag.
+
+Enterprise payloads (`"acct": "ent"`) replace the weekly window with the billing cycle:
+
+```json
+{ "s": 0, "sr": 12972, "w": 0, "wr": 0, "st": "allowed", "acct": "ent",
+  "tp": 71, "pd": 31, "rd": "Sep 30", "tok": 393751300, "cost": 702.69, "ok": true }
+```
+
+`tp` = % of the billing cycle elapsed, `pd` = cycle length in days, `rd` = reset date, `tok` = tokens used this cycle (from local transcripts), `cost` = dollars spent this cycle (from `/api/oauth/usage`). `tok` and `cost` are optional — the firmware shows `---` for whichever is absent.
 
 ## Development
 

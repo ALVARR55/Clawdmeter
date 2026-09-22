@@ -12,7 +12,7 @@ struct UsageData {
     int time_pct;            // 0-100: fraction of billing period elapsed (Enterprise)
     int period_days;         // total billing period length in days (Enterprise)
     char reset_date[12];     // formatted reset date e.g. "Jul 1" (Enterprise)
-    int64_t tokens_used;     // tokens used this billing period, from local transcripts (Enterprise; 0 if daemon doesn't send "tok").
+    int64_t tokens_used;     // tokens used this billing period, from local transcripts (Enterprise); <0 = daemon didn't send "tok".
                               // int64_t, not long: cache-read tokens make heavy-use monthly totals exceed 2^31 (observed ~1.7B in testing).
     float cost_usd;          // $ spent this billing period, as reported by Anthropic's OAuth usage endpoint (Enterprise); <0 = daemon didn't send "cost"
     long clock_epoch;        // local wall-clock epoch (s) from daemon; 0 = not provided
