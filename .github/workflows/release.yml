@@ -62,7 +62,6 @@ jobs:
           cp install-mac.sh flash-release.sh dist/clawdmeter/
           echo "${GITHUB_REF_NAME}" > dist/clawdmeter/VERSION
           tar -C dist -czf clawdmeter-daemon-macos.tar.gz clawdmeter
-          cp install-from-release.sh .
       - uses: actions/upload-artifact@v4
         with:
           name: daemon
