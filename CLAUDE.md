@@ -129,6 +129,8 @@ pio run -d firmware -e waveshare_amoled_216 -t upload --upload-port /dev/ttyACM0
 
 If `pio` isn't on PATH: try `~/.platformio/penv/bin/pio` (Linux/macOS pio install) or `brew install platformio` on macOS.
 
+**Releases (this fork):** pushing a `v*` tag runs `.github/workflows/release.yml`, which builds every hardware env's `firmware.factory.bin` (merged image, flash at 0x0) and packages the macOS daemon (`clawdmeter-daemon-macos.tar.gz` + `install-from-release.sh`). Asset names are stable so `flash-release.sh` / the README one-liner can fetch `releases/latest/download/<name>`. Cut a release with `git tag vX.Y.Z && git push fork vX.Y.Z`.
+
 Device path differs by OS: `/dev/cu.usbmodem*` on macOS, `/dev/ttyACM0` on Linux. Both expose the ESP32-S3 native USB-JTAG (no boot-mode dance needed).
 
 ## Desktop simulator (`-e sim`) — develop UI without hardware

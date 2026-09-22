@@ -15,6 +15,10 @@ tools/package-lock.json
 # Mac daemon venv
 daemon/.venv/
 
+# flash-release.sh scratch: downloaded release images + its fallback esptool venv
+clawdmeter-firmware-*.factory.bin
+.flash-venv/
+
 # Python bytecode cache
 __pycache__/
 *.pyc

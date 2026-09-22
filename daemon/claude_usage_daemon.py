@@ -117,6 +117,51 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+# --- "run claude login" desktop notification --------------------------------
+#
+# The daemon never refreshes the OAuth token (Claude Code owns that), so when
+# it expires the device just idles on "No data" — which reads like a BLE
+# problem unless something tells the user the fix is `claude login`. Mirrors
+# the Windows tray daemon: one native notification on the transition into the
+# no-token state, re-armed once a poll succeeds, so a long outage doesn't nag
+# every 60 s.
+_login_notice_shown = False
+
+LOGIN_NOTICE_TITLE = "Clawdmeter"
+LOGIN_NOTICE_TEXT = ("Claude Code login expired — run `claude login` in a "
+                     "terminal to resume usage updates.")
+
+
+def _notify_macos(title: str, message: str) -> None:
+    """Best-effort Notification Center banner via osascript; never raises.
+    json.dumps gives AppleScript-compatible double-quoted string literals."""
+    if sys.platform != "darwin":
+        return
+    script = f"display notification {json.dumps(message)} with title {json.dumps(title)}"
+    try:
+        subprocess.run(["osascript", "-e", script], check=False, timeout=10,
+                       capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def note_no_token() -> bool:
+    """Called each poll that finds no usable token. Notifies once per outage;
+    returns True only on the poll that actually fired the notification."""
+    global _login_notice_shown
+    if _login_notice_shown:
+        return False
+    _login_notice_shown = True
+    _notify_macos(LOGIN_NOTICE_TITLE, LOGIN_NOTICE_TEXT)
+    return True
+
+
+def note_token_ok() -> None:
+    """Called on a successful poll: re-arm the notification for the next outage."""
+    global _login_notice_shown
+    _login_notice_shown = False
+
+
 def _extract_access_token(blob: str) -> str | None:
     """Pull the accessToken out of a credentials blob.
 
@@ -911,6 +956,7 @@ async def connect_and_run(target, stop_event: asyncio.Event) -> bool:
                 # numbers until the CLI re-seeds it.
                 payload, dead = await poll_active()
                 if payload is not None:
+                    note_token_ok()
                     if await session.write_payload(payload):
                         last_poll = time.time()
                         used_successfully = True
@@ -922,6 +968,8 @@ async def connect_and_run(target, stop_event: asyncio.Event) -> bool:
                     # be a healthy link for a full POLL_INTERVAL.
                     log("No usable token; signalling no-data to device — run "
                         "`claude login` or use the CLI to let Claude Code renew it")
+                    if note_no_token():
+                        log("Posted the 'run claude login' desktop notification")
                     if await session.write_payload({"ok": False}):
                         last_poll = time.time()
                 else:

@@ -52,6 +52,22 @@ Boards supported out of the box:
 
 The macOS host pieces — Python daemon, LaunchAgent, and flash helper — were ported by [Chris Davidson (@lorddavidson)](https://github.com/lorddavidson). Thanks Chris!
 
+### Install from a release (no build tools)
+
+If your board is already flashed and you just want the daemon — or you want the current firmware without installing PlatformIO — use the [release artifacts](https://github.com/ALVARR55/Clawdmeter/releases/latest):
+
+```bash
+curl -fsSL https://github.com/ALVARR55/Clawdmeter/releases/latest/download/install-from-release.sh | bash
+```
+
+That downloads the daemon into `~/.clawdmeter`, creates its Python venv, registers the LaunchAgent (auto-starts at login, restarts if it crashes), and runs it once in the foreground so macOS shows the Bluetooth permission prompt. Re-running it later upgrades in place. To flash a board with the matching prebuilt image — one merged `.factory.bin` per board is attached to every release:
+
+```bash
+cd ~/.clawdmeter && ./flash-release.sh waveshare_amoled_216_c6     # or any board env
+```
+
+Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml) on every `v*` tag. The steps below are the from-source equivalent.
+
 ### Flash the firmware
 
 ```bash
@@ -75,6 +91,8 @@ The daemon reads your Claude OAuth token from the macOS Keychain (service `Claud
 ```
 
 The installer creates a Python venv in `daemon/.venv/`, installs `bleak` and `httpx`, renders a LaunchAgent into `~/Library/LaunchAgents/com.user.claude-usage-daemon.plist`, and loads it. The first run is launched interactively so macOS prompts for Bluetooth permission.
+
+The daemon never refreshes your Claude Code login itself. When the token expires it puts the device on "No data" and posts one Notification Center banner — *"Claude Code login expired — run `claude login`"* — then stays quiet until a poll succeeds again.
 
 Useful commands:
 

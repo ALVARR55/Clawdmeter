@@ -222,7 +222,9 @@ echo "  interactively once below. Press Ctrl+C after you see 'Scanning...'"
 echo "  and grant permission when prompted. Then re-run this installer"
 echo "  (or just continue) to enable launchd autostart."
 echo ""
-read -r -p "Run a permission-priming scan now? [Y/n] " ans
+# `|| ans=n`: with no terminal on stdin, `read` fails and `set -e` would abort
+# the whole install here; treat that as "no" and just load the service.
+read -r -p "Run a permission-priming scan now? [Y/n] " ans || ans="n"
 if [[ ! "$ans" =~ ^[Nn]$ ]]; then
     "$PYTHON_BIN" "$DAEMON_PY" || true
 fi

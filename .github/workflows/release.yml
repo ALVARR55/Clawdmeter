@@ -1,0 +1,93 @@
+# Publishes a GitHub Release on every `v*` tag:
+#   - clawdmeter-firmware-<env>.factory.bin  — one merged image per board env
+#     (bootloader + partitions + app at 0x0), flashable with plain esptool
+#   - clawdmeter-daemon-macos.tar.gz         — the macOS daemon + installer + flasher
+#   - install-from-release.sh                — one-line bootstrap for the tarball
+#
+# Stable asset names on purpose: the install/flash scripts fetch them via
+# .../releases/latest/download/<name>.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - waveshare_amoled_216
+          - waveshare_amoled_18
+          - waveshare_amoled_216_c6
+          - waveshare_amoled_18_c6
+          - waveshare_amoled_206
+          - waveshare_lcd_154
+          - waveshare_lcd_4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/platformio.ini') }}
+      - run: pip install --quiet platformio
+      - run: pio run -d firmware -e ${{ matrix.env }}
+      - run: cp firmware/.pio/build/${{ matrix.env }}/firmware.factory.bin clawdmeter-firmware-${{ matrix.env }}.factory.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.env }}
+          path: clawdmeter-firmware-${{ matrix.env }}.factory.bin
+          if-no-files-found: error
+
+  daemon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package the macOS daemon
+        run: |
+          set -euo pipefail
+          mkdir -p dist/clawdmeter/daemon
+          cp daemon/claude_usage_daemon.py \
+             daemon/com.user.claude-usage-daemon.plist \
+             daemon/config.example \
+             dist/clawdmeter/daemon/
+          cp install-mac.sh flash-release.sh dist/clawdmeter/
+          echo "${GITHUB_REF_NAME}" > dist/clawdmeter/VERSION
+          tar -C dist -czf clawdmeter-daemon-macos.tar.gz clawdmeter
+          cp install-from-release.sh .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daemon
+          path: |
+            clawdmeter-daemon-macos.tar.gz
+            install-from-release.sh
+          if-no-files-found: error
+
+  release:
+    needs: [firmware, daemon]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ls -la artifacts
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" artifacts/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" artifacts/* --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          fi
