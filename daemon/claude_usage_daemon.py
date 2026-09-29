@@ -24,12 +24,24 @@ import httpx
 from bleak import BleakClient
 from bleak.exc import BleakError
 
+# Corporate networks often TLS-inspect traffic with a company root CA that is
+# trusted by the OS (macOS Keychain) but absent from Python's bundled certifi
+# list, so every request dies with CERTIFICATE_VERIFY_FAILED. truststore makes
+# Python's ssl module verify against the OS trust store instead. Optional: if
+# it isn't installed, behavior is unchanged (public CAs still verify).
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+
 DEVICE_NAME = "Clawdmeter"
 SERVICE_UUID = "4c41555a-4465-7669-6365-000000000001"
 RX_CHAR_UUID = "4c41555a-4465-7669-6365-000000000002"
 REQ_CHAR_UUID = "4c41555a-4465-7669-6365-000000000004"
 
 POLL_INTERVAL = 60
+POLL_RETRY_AFTER_FAIL = 30   # a failed poll retries after this, not every TICK
 TICK = 5
 CONNECT_TIMEOUT = 20.0
 
@@ -974,8 +986,11 @@ async def connect_and_run(target, stop_event: asyncio.Event) -> bool:
                         last_poll = time.time()
                 else:
                     # Transient poll failure (a live token that didn't answer this
-                    # cycle) -> stay silent and retry next tick.
-                    log("No usable config dir this cycle")
+                    # cycle) -> stay silent and retry after a short backoff. Not
+                    # every TICK: a persistent failure (proxy, TLS, outage) would
+                    # otherwise hammer the API ~12x a minute.
+                    log(f"No usable config dir this cycle; retrying in {POLL_RETRY_AFTER_FAIL}s")
+                    last_poll = time.time() - POLL_INTERVAL + POLL_RETRY_AFTER_FAIL
 
             try:
                 await asyncio.wait_for(session.refresh_requested.wait(), timeout=TICK)

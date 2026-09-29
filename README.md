@@ -105,6 +105,8 @@ The installer creates a Python venv in `daemon/.venv/`, installs `bleak` and `ht
 
 The daemon never refreshes your Claude Code login itself. When the token expires it puts the device on "No data" and posts one Notification Center banner — *"Claude Code login expired — run `claude login`"* — then stays quiet until a poll succeeds again.
 
+Corporate networks that inspect HTTPS (Zscaler and similar) re-sign Anthropic's certificate with a company root CA that macOS trusts but Python's bundled certificate list doesn't. The daemon uses [`truststore`](https://pypi.org/project/truststore/) to verify TLS against the macOS Keychain instead, so it works on those networks too; if you see `CERTIFICATE_VERIFY_FAILED` in the log on an older install, upgrade.
+
 Useful commands:
 
 ```bash
