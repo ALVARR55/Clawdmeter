@@ -83,7 +83,7 @@ curl -fsSL https://github.com/ALVARR55/Clawdmeter/releases/latest/download/insta
 That downloads the daemon into `~/.clawdmeter`, creates its Python venv, registers and loads the LaunchAgent (auto-starts at login, restarts if it crashes), then watches its first start and tells you whether Bluetooth is reachable. macOS asks once whether "python3.12" may use Bluetooth — click Allow. No questions, no Ctrl-C. Re-running it later upgrades in place. To flash a board with the matching prebuilt image — one merged `.factory.bin` per board is attached to every release:
 
 ```bash
-cd ~/.clawdmeter && ./flash-release.sh waveshare_amoled_216_c6     # or any board env
+cd ~/.clawdmeter && ./flash-release.sh waveshare_amoled_216_c6 --name Ricardo   # or any board env; --name is optional
 ```
 
 **Or with Homebrew** (same result, and `brew upgrade` keeps it current):
@@ -91,8 +91,10 @@ cd ~/.clawdmeter && ./flash-release.sh waveshare_amoled_216_c6     # or any boar
 ```bash
 brew install ALVARR55/clawdmeter/clawdmeter
 clawdmeter-setup                # starts the login service; click Allow when macOS asks if Python may use Bluetooth
-clawdmeter-flash waveshare_amoled_216_c6   # optional: flash the matching release firmware
+clawdmeter-flash waveshare_amoled_216_c6 --name Ricardo   # optional: flash the matching release firmware
 ```
+
+`--name <suffix>` gives the board its own Bluetooth name, **Clawdmeter-Ricardo** (up to 7 letters, digits, `-` or `_`), so several boards can be told apart in the pairing list and on the board's own pairing screen. It's stored on the board; rename any time with `clawdmeter-flash --name <suffix>` (no re-flash), or `--name -` to go back to plain Clawdmeter. The daemon accepts any `Clawdmeter-…` name.
 
 If you previously installed from a checkout or the release tarball, stop that LaunchAgent first so two daemons don't fight over the board: `launchctl unload ~/Library/LaunchAgents/com.user.claude-usage-daemon.plist`. The tap ([ALVARR55/homebrew-clawdmeter](https://github.com/ALVARR55/homebrew-clawdmeter)) bumps its formula to each new release automatically.
 

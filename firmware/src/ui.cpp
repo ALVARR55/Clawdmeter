@@ -201,6 +201,7 @@ static int      clock_fmt = 24;   // 12 or 24, set from the daemon payload
 static int      clock_last_min = -1;   // last rendered minute; avoids redrawing the title every tick
 static lv_obj_t* usage_group;   // the two usage panels — shown when connected
 static lv_obj_t* pair_group;    // pairing hint — shown when disconnected
+static lv_obj_t* pair_name_lbl = nullptr;   // device name on the pairing hint
 static lv_obj_t* bar_session;
 static lv_obj_t* lbl_session_pct;
 static lv_obj_t* lbl_session_label;
@@ -469,6 +470,14 @@ static void build_pair_group(lv_obj_t* parent) {
     lv_obj_set_style_text_font(l3, L.bt_device_font, 0);
     lv_obj_set_style_text_color(l3, COL_DIM, 0);
     lv_obj_align(l3, LV_ALIGN_TOP_MID, 0, L.pair_y3);
+
+    // The board's Bluetooth name, so the owner knows which "Clawdmeter-…" to
+    // pick when several boards are in the room. Filled by ui_update_ble_status.
+    pair_name_lbl = lv_label_create(pair_group);
+    lv_label_set_text(pair_name_lbl, "");
+    lv_obj_set_style_text_font(pair_name_lbl, L.bt_device_font, 0);
+    lv_obj_set_style_text_color(pair_name_lbl, COL_TEXT, 0);
+    lv_obj_align(pair_name_lbl, LV_ALIGN_TOP_MID, 0, L.pair_y3 + (L.pair_y3 - L.pair_y2) * 3 / 2);
 
     lv_obj_add_flag(pair_group, LV_OBJ_FLAG_HIDDEN);  // ui_update_ble_status decides
 }
@@ -816,7 +825,8 @@ screen_t ui_get_current_screen(void) {
 }
 
 void ui_update_ble_status(ble_state_t state, const char* name, const char* mac) {
-    (void)name; (void)mac;
+    (void)mac;
+    if (pair_name_lbl && name) lv_label_set_text(pair_name_lbl, name);
     bool was_connected = s_ble_connected;
     s_ble_connected = (state == BLE_STATE_CONNECTED);
 

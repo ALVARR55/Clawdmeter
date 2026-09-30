@@ -23,7 +23,7 @@ static SimState states[MAX_STATES];
 static int      n_states = 0;
 static int      cur = 0;
 static bool     playing = true;
-static bool     connected = true;
+static bool     connected = !(getenv("SIM_LINK") && getenv("SIM_LINK")[0] == '0');  // SIM_LINK=0 boots unpaired
 static bool     pending = false;      // a state is queued for main's next poll
 static uint32_t delivered_ms = 0;
 
@@ -104,6 +104,7 @@ ble_state_t ble_get_state(void) {
     return connected ? BLE_STATE_CONNECTED : BLE_STATE_DISCONNECTED;
 }
 const char* ble_get_device_name(void) { return "Clawdmeter (sim)"; }
+bool ble_set_name_suffix(const char* suffix) { printf("[sim] name suffix -> '%s'\n", suffix ? suffix : ""); return true; }
 const char* ble_get_mac_address(void) { return "00:51:4D:00:00:01"; }
 
 void ble_clear_bonds(void) { printf("[sim] pair gesture completed — bonds cleared\n"); }

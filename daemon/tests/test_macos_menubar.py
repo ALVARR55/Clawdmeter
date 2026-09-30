@@ -195,3 +195,13 @@ def test_spend_problem_after_five_consecutive_failures():
     assert mod.spend_problem() == (mod.SPEND_STALE, mod.SPEND_STALE_FIX, "spend")
     mod._spend_failures = 0
     assert mod.spend_problem() is None
+
+
+def test_device_name_matching_accepts_owner_suffixes_only():
+    assert mod.is_our_device_name("Clawdmeter")
+    assert mod.is_our_device_name("Clawdmeter-Ricardo")
+    assert mod.is_our_device_name("Clawdmeter-r2_d2")
+    assert not mod.is_our_device_name("Clawdmeter2")
+    assert not mod.is_our_device_name("clawdmeter")
+    assert not mod.is_our_device_name("")
+    assert not mod.is_our_device_name(None)

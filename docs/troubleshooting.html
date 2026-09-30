@@ -177,7 +177,7 @@ clawdmeter-setup</pre>
     <li>On the board: make sure it shows <strong>“To pair…”</strong>. If it shows anything else, hold <kbd>PWR</kbd> for about 3–5 seconds and <strong>release</strong> — the screen switches to “To pair…”.</li>
     <li>Back in Bluetooth settings, Clawdmeter appears under <em>Nearby Devices</em>. Click <strong>Connect</strong>. Within about a minute the daemon attaches and the numbers appear.</li>
   </ol>
-  <div class="callout warn"><strong>Two boards in the room?</strong> They both advertise as “Clawdmeter” and the list can't tell them apart. Power the other one off first (hold <kbd>PWR</kbd> a full 8 seconds), so exactly one “Clawdmeter” is listed — then connect. Connecting to someone else's board does no harm (it refuses you) but wastes your time.</div>
+  <div class="callout warn"><strong>Two boards in the room?</strong> Give each its own name: <code>clawdmeter-flash --name Ricardo</code> (board plugged in over USB) makes it advertise as “Clawdmeter-Ricardo”, and the name is printed on the board's pairing screen so you know which one you're holding. Unnamed boards all advertise as “Clawdmeter” and the list can't tell them apart — power the other one off first (hold <kbd>PWR</kbd> a full 8 seconds) so exactly one is listed, then connect. Connecting to someone else's board does no harm (it refuses you) but wastes your time.</div>
   <details>
     <summary>From the terminal instead of System Settings</summary>
     <p>With <code>blueutil</code> installed (<code>brew install blueutil</code>), the daemon can repair a stale pairing by itself. To do it by hand:</p>

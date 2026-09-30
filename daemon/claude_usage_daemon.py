@@ -37,6 +37,13 @@ except ImportError:
     pass
 
 DEVICE_NAME = "Clawdmeter"
+
+
+def is_our_device_name(name) -> bool:
+    """True for the stock name and for owner-named boards ("Clawdmeter-<suffix>",
+    set with `clawdmeter-flash --name`). Plain prefix matching would also accept
+    unrelated "Clawdmeter2"-style names, so the dash is required."""
+    return bool(name) and (name == DEVICE_NAME or name.startswith(DEVICE_NAME + "-"))
 SERVICE_UUID = "4c41555a-4465-7669-6365-000000000001"
 RX_CHAR_UUID = "4c41555a-4465-7669-6365-000000000002"
 REQ_CHAR_UUID = "4c41555a-4465-7669-6365-000000000004"
@@ -520,7 +527,7 @@ async def retrieve_connected_macos(skip_addr: str | None = None):
         [CBUUID.UUIDWithString_("1812")]
     )
     for p in hid or []:
-        if _ok(p) and p.name() == DEVICE_NAME:
+        if _ok(p) and is_our_device_name(p.name()):
             return _wrap(p)
 
     return None
@@ -1049,7 +1056,8 @@ def unpair_macos() -> bool:
     #   address: 28-84-85-55-5c-3d, ... name: "Clawdmeter", ...
     addr = None
     for line in out.splitlines():
-        if f'name: "{DEVICE_NAME}"' in line:
+        nm = re.search(r'name:\s*"([^"]*)"', line)
+        if nm and is_our_device_name(nm.group(1)):
             m = re.search(r"address:\s*([0-9a-fA-F:-]+)", line)
             if m:
                 addr = m.group(1)

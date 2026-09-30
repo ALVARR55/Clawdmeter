@@ -178,6 +178,22 @@ static void check_serial_cmd() {
             cmd_buf[cmd_pos] = '\0';
             if (strcmp(cmd_buf, "screenshot") == 0) send_screenshot();
             else if (strcmp(cmd_buf, "buzz") == 0)  sound_hal_play_reset();
+            else if (strncmp(cmd_buf, "name", 4) == 0 && (cmd_buf[4] == '\0' || cmd_buf[4] == ' ')) {
+                // `name`            -> NAME <current advertised name>
+                // `name <suffix>`   -> advertise as Clawdmeter-<suffix> (persisted)
+                // `name -`          -> back to plain Clawdmeter
+                // Used by flash-release.sh --name; replies are single lines.
+                const char* arg = cmd_buf[4] ? cmd_buf + 5 : "";
+                while (*arg == ' ') arg++;
+                if (*arg == '\0') {
+                    Serial.printf("NAME %s\n", ble_get_device_name());
+                } else if (ble_set_name_suffix(strcmp(arg, "-") == 0 ? "" : arg)) {
+                    ui_update_ble_status(ble_get_state(), ble_get_device_name(), ble_get_mac_address());
+                    Serial.printf("NAME_OK %s\n", ble_get_device_name());
+                } else {
+                    Serial.printf("NAME_ERR suffix must be 1-%d letters, digits, '-' or '_'\n", BLE_NAME_SUFFIX_MAX);
+                }
+            }
             cmd_pos = 0;
         } else if (cmd_pos < CMD_BUF_SIZE - 1) {
             cmd_buf[cmd_pos++] = c;

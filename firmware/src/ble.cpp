@@ -3,6 +3,8 @@
 #include <NimBLEDevice.h>
 #include <NimBLEHIDDevice.h>
 #include <Preferences.h>
+#include <ctype.h>
+#include <string.h>
 
 #define DEVICE_NAME "Clawdmeter"
 
@@ -77,6 +79,25 @@ static volatile bool data_ready = false;
 static volatile bool has_received_data = false;
 static char mac_str[18];
 
+// Advertised / GAP device name: DEVICE_NAME, or DEVICE_NAME-<suffix> when the
+// owner set one over the serial `name` command (persisted in NVS key "name").
+static char device_name[32] = DEVICE_NAME;
+
+static bool suffix_ok(const char* s) {
+    size_t n = strlen(s);
+    if (n == 0 || n > BLE_NAME_SUFFIX_MAX) return false;
+    for (size_t i = 0; i < n; i++) {
+        char c = s[i];
+        if (!(isalnum((unsigned char)c) || c == '-' || c == '_')) return false;
+    }
+    return true;
+}
+
+static void apply_name_suffix(const char* suffix) {
+    if (suffix && suffix[0]) snprintf(device_name, sizeof(device_name), "%s-%s", DEVICE_NAME, suffix);
+    else                     snprintf(device_name, sizeof(device_name), "%s", DEVICE_NAME);
+}
+
 // --- Single-owner lock -----------------------------------------------------
 //
 // The board is a BLE peripheral that any central in range could connect to and
@@ -95,6 +116,30 @@ static void save_owner() {
     prefs.begin("clawd", false);
     prefs.putString("owner", owner_addr);
     prefs.end();
+}
+
+static void load_name() {
+    prefs.begin("clawd", true);
+    String sfx = prefs.getString("name", "");
+    prefs.end();
+    apply_name_suffix(suffix_ok(sfx.c_str()) ? sfx.c_str() : "");
+}
+
+bool ble_set_name_suffix(const char* suffix) {
+    bool clear = (suffix == nullptr || suffix[0] == '\0');
+    if (!clear && !suffix_ok(suffix)) return false;
+    prefs.begin("clawd", false);
+    if (clear) prefs.remove("name");
+    else       prefs.putString("name", suffix);
+    prefs.end();
+    apply_name_suffix(clear ? "" : suffix);
+    NimBLEDevice::setDeviceName(device_name);
+    // Re-advertise under the new name (the packet embeds it).
+    NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+    if (adv->isAdvertising()) adv->stop();
+    need_advertise = true;
+    Serial.printf("BLE: device name is now %s\n", device_name);
+    return true;
 }
 
 static void clear_owner() {
@@ -150,14 +195,15 @@ static void start_advertising() {
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
     adv->reset();
     // Primary advertising packet (≤31 bytes):
-    //   flags (3) + appearance (4) + HID service 0x1812 (4) + name "Clawdmeter" (12)
-    //   = 23 bytes. macOS Bluetooth Settings only surfaces BLE-only devices
+    //   flags (3) + appearance (4) + HID service 0x1812 (4) + name (2 + len)
+    //   = 23 bytes for "Clawdmeter", 30 with the longest "-suffix" (see
+    //   BLE_NAME_SUFFIX_MAX). macOS Bluetooth Settings only surfaces BLE-only devices
     //   that explicitly advertise the standard HID service UUID (0x1812) —
     //   without it the device is recognized internally but hidden from the
     //   GUI nearby-devices list.
     adv->setAppearance(HID_KEYBOARD);
     adv->addServiceUUID(NimBLEUUID((uint16_t)0x1812));  // BLE HID Service
-    adv->setName(DEVICE_NAME);
+    adv->setName(device_name);
     // Scan response carries the 128-bit custom data-service UUID for active
     // scanners (the host daemon scans actively).
     NimBLEAdvertisementData scanResp;
@@ -299,7 +345,8 @@ class ReqCallbacks : public NimBLECharacteristicCallbacks {
 };
 
 void ble_init(void) {
-    NimBLEDevice::init(DEVICE_NAME);
+    load_name();                       // before init: NimBLE copies the name
+    NimBLEDevice::init(device_name);
     NimBLEDevice::setSecurityAuth(true, false, true);  // bonding, no MITM, SC
 
     // Restore the locked owner (if any) and drop any stale non-owner bonds so
@@ -388,7 +435,7 @@ ble_state_t ble_get_state(void) {
 }
 
 const char* ble_get_device_name(void) {
-    return DEVICE_NAME;
+    return device_name;
 }
 
 const char* ble_get_mac_address(void) {
