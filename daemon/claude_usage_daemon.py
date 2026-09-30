@@ -17,6 +17,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -104,19 +105,41 @@ async def fetch_spend_usd(token: str) -> float | None:
         "User-Agent": API_HEADERS_TEMPLATE["User-Agent"],
         "Accept": "application/json",
     }
+    global _spend_failures
     try:
         async with httpx.AsyncClient(timeout=20.0) as http:
             resp = await http.get(OAUTH_USAGE_URL, headers=headers)
         resp.raise_for_status()
         spend = _parse_spend_usd(resp.json())
     except (httpx.HTTPError, ValueError) as e:
+        _spend_failures += 1
         log(f"Spend fetch failed: {e}; reusing last value")
         return _last_spend_usd
     if spend is None:
+        _spend_failures += 1
         log("Spend fetch: no spend.used in response; reusing last value")
         return _last_spend_usd
+    _spend_failures = 0
     _last_spend_usd = spend
     return spend
+
+
+# The spend lookup is soft: one failure replays the last $ figure and the
+# board keeps updating, so a blip stays invisible. After this many failures
+# in a row the "$" on the board is stale enough to say so on the icon.
+SPEND_FAILS_BEFORE_ERROR = 5
+SPEND_STALE = "Spend figure not updating"
+SPEND_STALE_FIX = "the $ shown is the last known value; check your network (click for the FAQ)"
+SPEND_STALE_FAQ = "spend"
+_spend_failures = 0
+
+
+def spend_problem() -> tuple[str, str, str] | None:
+    """(reason, fix, faq_anchor) once SPEND_FAILS_BEFORE_ERROR consecutive spend
+    lookups have failed while usage polls kept working; None otherwise."""
+    if _spend_failures >= SPEND_FAILS_BEFORE_ERROR:
+        return SPEND_STALE, SPEND_STALE_FIX, SPEND_STALE_FAQ
+    return None
 
 
 class TokenExpired(Exception):
@@ -129,19 +152,118 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-# --- "run claude login" desktop notification --------------------------------
+# --- "run claude auth login" desktop notification --------------------------------
 #
 # The daemon never refreshes the OAuth token (Claude Code owns that), so when
 # it expires the device just idles on "No data" — which reads like a BLE
-# problem unless something tells the user the fix is `claude login`. Mirrors
+# problem unless something tells the user the fix is `claude auth login`. Mirrors
 # the Windows tray daemon: one native notification on the transition into the
 # no-token state, re-armed once a poll succeeds, so a long outage doesn't nag
 # every 60 s.
 _login_notice_shown = False
 
+# Why the last poll cycle had no usable login — drives the tray's error text.
+LOGIN_MISSING = "Claude Code not logged in"
+LOGIN_EXPIRED = "Claude Code login expired"
+LOGIN_FIX = "run `claude auth login` in Terminal, then wait a minute"
+_last_dead_reason = LOGIN_MISSING
+
+# Why CoreBluetooth refused to come up on the last device lookup (macOS). The
+# Bluetooth permission prompt is shown once per app; a Deny is remembered and
+# the daemon would otherwise sit amber forever with the reason only in the log.
+# The grant is keyed to Homebrew's Python (bundle org.python.python), which is
+# why the Privacy & Security list shows "Python", not "Clawdmeter".
+BT_DENIED = "Bluetooth access denied for Python"
+BT_RESTRICTED = "Bluetooth access blocked by a system policy"
+BT_OFF = "Bluetooth is turned off"
+BT_DENIED_FIX = "allow Python under Privacy & Security > Bluetooth (retries automatically)"
+BT_RESTRICTED_FIX = "ask your Mac's admin to lift the Bluetooth restriction for Python"
+BT_OFF_FIX = "turn Bluetooth on in Control Center (retries automatically)"
+_bt_problem: tuple[str, str] | None = None   # (reason, fix) or None when CoreBluetooth is fine
+
+
+def classify_bt_error(e: BaseException) -> tuple[str, str] | None:
+    """Map a CoreBluetooth start-up failure to a (reason, fix) pair for the menu
+    bar, or None for transient states (radio resetting, unknown) that should
+    stay amber. Uses bleak's BleakBluetoothNotAvailableReason when present and
+    falls back to the message text."""
+    name = getattr(getattr(e, "reason", None), "name", "") or ""
+    msg = str(e).lower()
+    if name == "DENIED_BY_USER" or "denied by the user" in msg:
+        return BT_DENIED, BT_DENIED_FIX
+    if name == "DENIED_BY_SYSTEM" or "restricted" in msg:
+        return BT_RESTRICTED, BT_RESTRICTED_FIX
+    if name == "DENIED_BY_UNKNOWN" or "not authorized" in msg:
+        return BT_DENIED, BT_DENIED_FIX
+    if name == "POWERED_OFF" or "turned off" in msg:
+        return BT_OFF, BT_OFF_FIX
+    return None
+
+
+def bluetooth_problem() -> tuple[str, str] | None:
+    """(reason, fix) from the last CoreBluetooth failure, or None."""
+    return _bt_problem
+
+
+# Network failures reaching Anthropic while a board is connected. The device
+# just keeps its last numbers (90 s freshness) and the icon would sit green
+# then amber "stale" with the cause only in the log. Two consecutive failed
+# polls flip the icon red with a fix line that opens the matching FAQ entry.
+NET_TLS = "HTTPS certificate not trusted (corporate proxy?)"
+NET_TLS_FIX = "run `brew upgrade clawdmeter`; still failing? click for the FAQ"
+NET_TLS_FAQ = "tls"
+NET_OFFLINE = "Can't reach Anthropic (offline / VPN?)"
+NET_OFFLINE_FIX = "check your network or VPN; retrying every 30 s (click for the FAQ)"
+NET_OFFLINE_FAQ = "offline"
+NET_FAILS_BEFORE_ERROR = 2
+_net_failures = 0
+_net_problem: tuple[str, str, str] | None = None   # (reason, fix, faq anchor)
+
+
+def classify_net_error(e: BaseException) -> tuple[str, str, str]:
+    """(reason, fix, faq_anchor) for a failed /v1/messages probe."""
+    msg = str(e)
+    if "CERTIFICATE_VERIFY_FAILED" in msg or "certificate verify failed" in msg.lower():
+        return NET_TLS, NET_TLS_FIX, NET_TLS_FAQ
+    return NET_OFFLINE, NET_OFFLINE_FIX, NET_OFFLINE_FAQ
+
+
+def _note_net_failure(e: BaseException) -> None:
+    global _net_failures, _net_problem
+    _net_failures += 1
+    _net_problem = classify_net_error(e)
+
+
+def _note_net_ok() -> None:
+    global _net_failures, _net_problem
+    _net_failures = 0
+    _net_problem = None
+
+
+def network_problem() -> tuple[str, str, str] | None:
+    """(reason, fix, faq_anchor) once NET_FAILS_BEFORE_ERROR consecutive polls
+    have failed to reach Anthropic; None while healthy or after a single blip."""
+    return _net_problem if _net_failures >= NET_FAILS_BEFORE_ERROR else None
+
+
+def login_problem() -> str | None:
+    """Cheap, network-free check used while no board is connected: LOGIN_MISSING
+    if no configured Claude dir holds an access token, else None. (Expiry can
+    only be detected by an API call, which happens once a board is connected.)"""
+    for d in read_config_dirs():
+        if read_token_for(d):
+            return None
+    return LOGIN_MISSING
+
+
 LOGIN_NOTICE_TITLE = "Clawdmeter"
-LOGIN_NOTICE_TEXT = ("Claude Code login expired — run `claude login` in a "
+LOGIN_NOTICE_TEXT = ("Claude Code login expired — run `claude auth login` in a "
                      "terminal to resume usage updates.")
+
+
+def login_notice_text() -> str:
+    """Banner wording, same specific reason as the menu bar shows."""
+    return f"{_last_dead_reason} — {LOGIN_FIX}."
 
 
 def _notify_macos(title: str, message: str) -> None:
@@ -164,7 +286,7 @@ def note_no_token() -> bool:
     if _login_notice_shown:
         return False
     _login_notice_shown = True
-    _notify_macos(LOGIN_NOTICE_TITLE, LOGIN_NOTICE_TEXT)
+    _notify_macos(LOGIN_NOTICE_TITLE, login_notice_text())
     return True
 
 
@@ -366,11 +488,14 @@ async def retrieve_connected_macos(skip_addr: str | None = None):
     from CoreBluetooth import CBUUID
     from bleak.backends.device import BLEDevice
 
+    global _bt_problem
     try:
         manager = await _get_cb_manager()
     except Exception as e:  # BleakBluetoothNotAvailableError etc.
         log(f"CoreBluetooth unavailable: {e}")
+        _bt_problem = classify_bt_error(e)   # surfaces on the menu-bar icon
         return None
+    _bt_problem = None
 
     cm = manager.central_manager
 
@@ -445,6 +570,25 @@ def read_chime_setting() -> str:
     except OSError:
         pass
     return "off"
+
+
+def read_menubar_setting() -> str:
+    """`menubar = on|off` from the config (macOS only). Default on: a status
+    icon in the menu bar showing connected / waiting / error and the last
+    update time. `off` runs the daemon headless as before."""
+    val = ""
+    try:
+        if CONFIG_FILE.exists():
+            for line in CONFIG_FILE.read_text().splitlines():
+                line = line.split("#", 1)[0].strip()
+                if "=" not in line:
+                    continue
+                key, v = line.split("=", 1)
+                if key.strip().lower() == "menubar":
+                    val = v.strip().lower()
+    except OSError:
+        pass
+    return "off" if val in ("off", "0", "false", "no") else "on"
 
 
 def read_clock_setting() -> str:
@@ -522,7 +666,9 @@ async def poll_api(token: str, config_dir: Path = DEFAULT_CONFIG_DIR) -> dict | 
             resp = await http.post(API_URL, headers=headers, json=API_BODY)
     except httpx.HTTPError as e:
         log(f"API call failed: {e}")
+        _note_net_failure(e)
         return None
+    _note_net_ok()
     if resp.status_code in (401, 403):
         log(f"API HTTP {resp.status_code} (token expired/invalid)")
         raise TokenExpired()
@@ -753,10 +899,12 @@ async def poll_active(selector: PlanSelector = _SELECTOR) -> tuple[dict | None, 
     Pure free-ride: a 401 (TokenExpired) means that dir's token has expired and
     only Claude Code (its owner) can re-seed it — we never refresh it ourselves.
     """
+    global _last_dead_reason
     dirs = read_config_dirs()
     payloads: dict[Path, dict] = {}
     sessions: dict[Path, int] = {}
     any_live = False
+    saw_expired = False
     for d in dirs:
         token = read_token_for(d)
         if not token:
@@ -766,6 +914,7 @@ async def poll_active(selector: PlanSelector = _SELECTOR) -> tuple[dict | None, 
             payload = await poll_api(token, d)
         except TokenExpired:
             log(f"Token in {d} expired/invalid; skipping")
+            saw_expired = True
             continue
         # Authenticated: a transient None here isn't an auth failure, so the
         # dir counts as live and we stay silent rather than idling the device.
@@ -774,6 +923,8 @@ async def poll_active(selector: PlanSelector = _SELECTOR) -> tuple[dict | None, 
             payloads[d] = payload
             sessions[d] = int(payload.get("s", 0) or 0)
     if not payloads:
+        if not any_live:
+            _last_dead_reason = LOGIN_EXPIRED if saw_expired else LOGIN_MISSING
         return None, not any_live
     active = selector.choose(sessions)
     if len(dirs) > 1:
@@ -914,7 +1065,7 @@ def unpair_macos() -> bool:
     return True
 
 
-async def connect_and_run(target, stop_event: asyncio.Event) -> bool:
+async def connect_and_run(target, stop_event: asyncio.Event, tray_state=None) -> bool:
     """Connect to a target and poll until disconnected or stopped.
 
     ``target`` is either an address string (Linux) or a BLEDevice carrying
@@ -954,7 +1105,8 @@ async def connect_and_run(target, stop_event: asyncio.Event) -> bool:
     last_poll = 0.0
     used_successfully = False
     try:
-        while client.is_connected and not stop_event.is_set():
+        while client.is_connected and not stop_event.is_set() \
+                and not (tray_state is not None and tray_state.paused):
             now = time.time()
             elapsed = now - last_poll
             if session.refresh_requested.is_set() or elapsed >= POLL_INTERVAL:
@@ -972,6 +1124,13 @@ async def connect_and_run(target, stop_event: asyncio.Event) -> bool:
                     if await session.write_payload(payload):
                         last_poll = time.time()
                         used_successfully = True
+                        if tray_state:
+                            tray_state.set_connected(last_poll)
+                            if spend_problem():
+                                # Usage is flowing but the $ figure is stuck:
+                                # say so instead of a clean green.
+                                reason, fix, anchor = spend_problem()
+                                tray_state.set_error(reason, fix, action=f"faq:{anchor}")
                 elif dead:
                     # No live token in any config dir (missing, or a 401/expired
                     # token) -> show "No data" now instead of stale numbers. Guard
@@ -979,9 +1138,11 @@ async def connect_and_run(target, stop_event: asyncio.Event) -> bool:
                     # failed beat retries next tick instead of throttling what may
                     # be a healthy link for a full POLL_INTERVAL.
                     log("No usable token; signalling no-data to device — run "
-                        "`claude login` or use the CLI to let Claude Code renew it")
+                        "`claude auth login` or use the CLI to let Claude Code renew it")
                     if note_no_token():
-                        log("Posted the 'run claude login' desktop notification")
+                        log("Posted the 'run claude auth login' desktop notification")
+                    if tray_state:
+                        tray_state.set_error(_last_dead_reason, LOGIN_FIX, action="login")
                     if await session.write_payload({"ok": False}):
                         last_poll = time.time()
                 else:
@@ -991,11 +1152,20 @@ async def connect_and_run(target, stop_event: asyncio.Event) -> bool:
                     # otherwise hammer the API ~12x a minute.
                     log(f"No usable config dir this cycle; retrying in {POLL_RETRY_AFTER_FAIL}s")
                     last_poll = time.time() - POLL_INTERVAL + POLL_RETRY_AFTER_FAIL
+                    if tray_state and network_problem():
+                        reason, fix, anchor = network_problem()
+                        tray_state.set_error(reason, fix, action=f"faq:{anchor}")
 
             try:
                 await asyncio.wait_for(session.refresh_requested.wait(), timeout=TICK)
             except asyncio.TimeoutError:
                 pass
+        if tray_state is not None and tray_state.paused and client.is_connected:
+            # Menu-bar Disconnect: macOS keeps the board's HID (keyboard) link up on
+            # its own, so our GATT disconnect alone leaves the board showing the
+            # last numbers until its 90 s freshness window lapses. A final
+            # {"ok": false} beat flips it to the idle screen immediately.
+            await session.write_payload({"ok": False})
     finally:
         try:
             await client.disconnect()
@@ -1006,31 +1176,67 @@ async def connect_and_run(target, stop_event: asyncio.Event) -> bool:
     return used_successfully
 
 
-async def main() -> None:
+async def main(tray_state=None) -> None:
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
+    if tray_state is not None:
+        tray_state.loop = loop
+        tray_state.stop_event = stop_event
 
     def _stop(*_args: object) -> None:
         log("Daemon stopping")
         stop_event.set()
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, _stop)
-        except NotImplementedError:
-            signal.signal(sig, _stop)
+    # Process signals can only be owned by the main thread. Under the menu-bar
+    # front end this loop runs in a worker thread and menubar_macos routes
+    # SIGTERM/SIGINT to stop_event for us.
+    if threading.current_thread() is threading.main_thread():
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, _stop)
+            except NotImplementedError:
+                signal.signal(sig, _stop)
 
     log("=== Claude Usage Tracker Daemon (BLE, macOS) ===")
     log(f"Poll interval: {POLL_INTERVAL}s")
 
     backoff = 1
     skip_addr: str | None = None  # macOS: a peripheral to skip for one cycle
+    was_paused = False
     while not stop_event.is_set():
+        # Menu-bar "Disconnect": hold here (link already dropped by connect_and_run)
+        # until "Reconnect" clears the flag. Nothing is polled meanwhile.
+        if tray_state is not None and tray_state.paused:
+            if not was_paused:
+                log("Paused by user; not reconnecting until Reconnect is chosen")
+                was_paused = True
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+            continue
+        if was_paused:
+            log("Resumed by user")
+            was_paused = False
+            backoff = 1
+
         # Apply any pending skip exactly once, then clear it so the next
         # cycle re-tries retrieveConnected (the device may have recovered).
         target = await discover_target(skip_addr=skip_addr)
         skip_addr = None
         if not target:
+            if tray_state:
+                # No board yet — still tell the user if the login is the problem,
+                # so a fresh install without `claude auth login` shows red, not amber.
+                problem = login_problem()
+                if problem:
+                    tray_state.set_error(problem, LOGIN_FIX, action="login")
+                elif bluetooth_problem():
+                    # Permission denied / radio off: red with a one-click fix,
+                    # instead of amber "waiting" that never resolves.
+                    tray_state.set_error(*bluetooth_problem(), action="bluetooth")
+                else:
+                    tray_state.set_waiting()
             log(f"Device not found, retrying in {backoff}s...")
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=backoff)
@@ -1040,7 +1246,9 @@ async def main() -> None:
             continue
 
         addr = target if isinstance(target, str) else target.address
-        ok = await connect_and_run(target, stop_event)
+        ok = await connect_and_run(target, stop_event, tray_state)
+        if tray_state:
+            tray_state.set_waiting()   # link dropped (or never came up); back to waiting
         if not ok:
             if sys.platform == "darwin":
                 # No string cache to drop; instead skip this stale handle on
@@ -1060,6 +1268,15 @@ async def main() -> None:
 
 if __name__ == "__main__":
     try:
+        if sys.platform == "darwin" and read_menubar_setting() == "on":
+            try:
+                import menubar_macos   # sibling module (brew/tarball) or daemon/ on sys.path (repo)
+            except ImportError:
+                menubar_macos = None
+            if menubar_macos is not None:
+                menubar_macos.run(daemon_main=main, log=log)
+                sys.exit(0)
+            log("menubar = on but pystray/Pillow aren't installed; running headless")
         asyncio.run(main())
     except KeyboardInterrupt:
         sys.exit(0)

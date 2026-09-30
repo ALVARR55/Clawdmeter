@@ -32,6 +32,10 @@ BUBBLE: dict[str, tuple[int, int, int, int]] = {
     "error":     (220, 60, 60, 255),   # red
 }
 
+# Extra color used only by the macOS menu bar (user chose Disconnect). Kept out
+# of BUBBLE so build_state_icons() still yields exactly the three Windows states.
+PAUSED_BUBBLE: tuple[int, int, int, int] = (150, 150, 150, 255)   # gray
+
 
 def _expand565(v: int) -> tuple[int, int, int]:
     """Expand a 16-bit RGB565 value to an (R, G, B) tuple using proper rounding.
@@ -120,8 +124,11 @@ def state_icon(base: Image.Image, state: str, size: int = 32) -> Image.Image:
         KeyError: If ``state`` is not one of the three known states.
     """
     # Raises KeyError on unknown state — no silent default (per plan anti-pattern).
-    bubble_color = BUBBLE[state]
+    return bubble_icon(base, BUBBLE[state], size)
 
+
+def bubble_icon(base: Image.Image, bubble_color: tuple[int, int, int, int], size: int = 32) -> Image.Image:
+    """Composite an arbitrary-colored corner bubble onto the brand mark."""
     icon = base.resize((size, size), Image.LANCZOS).convert("RGBA")
     draw = ImageDraw.Draw(icon)
 

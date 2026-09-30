@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clawdmeter Troubleshooting</title>
+<meta name="description" content="What the Clawdmeter screen and menu-bar icon are telling you, and the fix for each situation.">
+<style>
+  :root {
+    --bg: #faf9f5; --panel: #ffffff; --ink: #141413; --dim: #5f5e5a; --line: #e6e3da;
+    --accent: #d97757; --green: #3cc85a; --amber: #f0b428; --red: #dc3c3c; --gray: #969696;
+    --code-bg: #f1efe8; --shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141413; --panel: #1f1e1c; --ink: #faf9f5; --dim: #a8a69f; --line: #2f2e2b;
+      --code-bg: #2a2925; --shadow: 0 1px 3px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141413; --panel: #1f1e1c; --ink: #faf9f5; --dim: #a8a69f; --line: #2f2e2b;
+    --code-bg: #2a2925; --shadow: 0 1px 3px rgba(0,0,0,.5);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+  header img { width: 56px; height: 56px; image-rendering: pixelated; }
+  h1 { font-size: 1.9rem; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--dim); margin: 4px 0 24px; }
+  h2 { font-size: 1.35rem; margin: 40px 0 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 22px 0 8px; }
+  p { margin: 8px 0; }
+  a { color: var(--accent); }
+  code, kbd { font: 0.92em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 1px 6px; border-radius: 5px; }
+  pre { background: var(--code-bg); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; }
+  .toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; padding: 0; list-style: none; }
+  .toc a { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; color: var(--ink); background: var(--panel); font-size: .92rem; }
+  .toc a:hover { border-color: var(--accent); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 16px 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); }
+  .card img { width: 100%; border-radius: 10px; display: block; background: #000; }
+  .card .cap { font-weight: 600; margin: 10px 0 4px; }
+  .card .meaning { color: var(--dim); font-size: .95rem; }
+  .card .do { margin-top: 8px; font-size: .95rem; }
+  .screen { aspect-ratio: 1; border-radius: 10px; background: #000; color: #faf9f5; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 16px; font-size: 1.05rem; }
+  .screen .big { font-size: 1.5rem; font-weight: 700; margin-bottom: 6px; }
+  .screen .mono { font-family: ui-monospace, Menlo, monospace; color: var(--accent); }
+  .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 12px 0; }
+  .legend .card { display: flex; gap: 12px; align-items: flex-start; }
+  .legend img { width: 48px; height: 48px; flex: none; background: none; }
+  .dot { display: inline-block; width: .8em; height: .8em; border-radius: 50%; vertical-align: -0.08em; margin-right: .3em; }
+  .menu { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); width: 320px; max-width: 100%; padding: 6px 0; font-size: .95rem; margin: 12px 0; }
+  .menu div { padding: 5px 14px; }
+  .menu .dis { color: var(--dim); }
+  .menu .sep { border-top: 1px solid var(--line); margin: 5px 0; padding: 0; }
+  .callout { border-left: 4px solid var(--accent); background: var(--panel); border-radius: 0 12px 12px 0; padding: 10px 14px; margin: 14px 0; }
+  .callout.warn { border-left-color: var(--red); }
+  .callout.tip { border-left-color: var(--green); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .95rem; background: var(--panel); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  ol li, ul li { margin: 4px 0; }
+  .muted { color: var(--dim); font-size: .92rem; }
+  details { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 10px 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--dim); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="img/icon-connected.png" alt="">
+    <div>
+      <h1>Clawdmeter Troubleshooting</h1>
+      <div class="sub">What the board and the menu-bar icon are telling you — and the fix for each. Start with the screen you see.</div>
+    </div>
+  </header>
+
+  <ul class="toc">
+    <li><a href="#screen">What the board shows</a></li>
+    <li><a href="#icon">The menu-bar icon</a></li>
+    <li><a href="#login">Not logged in</a></li>
+    <li><a href="#bluetooth">Bluetooth permission denied</a></li>
+    <li><a href="#pairing">Won't connect / re-pair</a></li>
+    <li><a href="#nodata">Connected but no data</a></li>
+    <li><a href="#restart">Restart the board</a></li>
+    <li><a href="#daemon">Daemon not running</a></li>
+    <li><a href="#newmac">Setting up a new Mac</a></li>
+    <li><a href="#buttons">Buttons</a></li>
+    <li><a href="#logs">Logs &amp; asking for help</a></li>
+  </ul>
+
+  <h2 id="screen">Start here: what does the board show?</h2>
+  <p>The board has exactly four states, and each one points at a different place to look.</p>
+  <div class="grid">
+    <div class="card">
+      <img src="img/board-usage.png" alt="Usage screen showing Tokens and dollars spent">
+      <div class="cap"><span class="dot" style="background:var(--green)"></span>Numbers on screen</div>
+      <div class="meaning">Everything works. Data arrives every minute.</div>
+      <div class="do">Nothing to do. (Pro/Max accounts see “Current” and “Weekly” percentages instead of Tokens and $.)</div>
+    </div>
+    <div class="card">
+      <img src="img/board-nodata.png" alt="Idle screen alternating the words No data and Listening">
+      <div class="cap"><span class="dot" style="background:var(--amber)"></span>“No data” / “Listening…”</div>
+      <div class="meaning">The board <em>is</em> Bluetooth-connected to a Mac, but that Mac's daemon isn't delivering data.</div>
+      <div class="do">Bluetooth is fine — look at the <a href="#icon">menu-bar icon</a> on that Mac. Red → <a href="#login">not logged in</a> or <a href="#bluetooth">Bluetooth permission denied</a>. Amber → <a href="#nodata">connected but no data</a>. Gray → you clicked Disconnect.</div>
+    </div>
+    <div class="card">
+      <div class="screen"><div class="big">Waiting</div><div class="muted">advertising, no Mac connected</div></div>
+      <div class="cap"><span class="dot" style="background:var(--amber)"></span>“Waiting”</div>
+      <div class="meaning">The board is paired to a Mac that isn't connected right now (asleep, out of range, Bluetooth off).</div>
+      <div class="do">Wake the Mac, or open <em>System Settings → Bluetooth</em> and click <em>Connect</em> next to Clawdmeter.</div>
+    </div>
+    <div class="card">
+      <div class="screen"><div class="big">To pair</div><div class="muted">hold PWR 3 s, then release</div></div>
+      <div class="cap"><span class="dot" style="background:var(--red)"></span>“To pair…”</div>
+      <div class="meaning">The board has <strong>no pairing at all</strong>. Either it's brand new, or its pairing was wiped (see the button warning below).</div>
+      <div class="do">Follow <a href="#pairing">Won't connect / re-pair</a>. If your Mac still lists Clawdmeter as paired, that entry is stale and must be forgotten first.</div>
+    </div>
+  </div>
+
+  <h2 id="icon">The menu-bar icon</h2>
+  <p>On macOS the daemon puts a small Clawd in the menu bar. The colored dot is the fastest diagnosis there is.</p>
+  <div class="legend">
+    <div class="card"><img src="img/icon-connected.png" alt=""><div><strong>Green</strong><br><span class="muted">Connected; data sent within the last 3 minutes.</span></div></div>
+    <div class="card"><img src="img/icon-waiting.png" alt=""><div><strong>Amber</strong><br><span class="muted">Waiting for the board — or connected but nothing sent for 3 min (<a href="#nodata">stale</a>).</span></div></div>
+    <div class="card"><img src="img/icon-error.png" alt=""><div><strong>Red</strong><br><span class="muted">Claude Code isn't logged in, the Mac is refusing the daemon Bluetooth, or Anthropic can't be reached. The menu shows the fix.</span></div></div>
+    <div class="card"><img src="img/icon-paused.png" alt=""><div><strong>Gray</strong><br><span class="muted">You chose <em>Disconnect</em>. Choose <em>Reconnect</em> to resume.</span></div></div>
+  </div>
+  <p>Click the icon to see the status line and the actions:</p>
+  <div class="menu">
+    <div class="dis">Connected · last update 14:02</div>
+    <div class="sep"></div>
+    <div>Disconnect</div>
+    <div>Troubleshooting FAQs</div>
+    <div>Open log</div>
+    <div class="sep"></div>
+    <div>Quit Clawdmeter</div>
+  </div>
+  <p class="muted">In the error state a second line appears under the status, e.g. <em>Fix: run <code>claude auth login</code> in Terminal, then wait a minute</em>, and clicking that <em>Fix:</em> line performs the remedy: for a login error it opens Terminal with <code>claude auth login</code> ready to run on <kbd>Enter</kbd>; for a Bluetooth error it jumps to the exact System Settings pane; for a network error it opens the matching entry of this page. While the icon is amber, a <em>See the FAQ</em> line links straight to the relevant section. <em>Quit</em> stops the daemon until your next login; <em>Disconnect</em> only pauses it.</p>
+
+  <h2 id="login">Red icon: “Claude Code not logged in” / “login expired”</h2>
+  <p>The daemon reads your Claude Code login from the Mac's Keychain — it never logs in by itself. No login (or an expired one) means no data, and the board shows “No data”.</p>
+  <ol>
+    <li>Click the icon, then click the <strong>Fix: run <code>claude auth login</code>…</strong> line. A Terminal window opens with <code>claude auth login</code> ready to go — press <kbd>Enter</kbd>, then finish the browser sign-in. (The first time, macOS asks whether Python may control Terminal; click <em>OK</em>.) Or run <code>claude auth login</code> yourself.</li>
+    <li>Wait up to a minute. The daemon picks the new login up on its next poll — no restart needed. The icon turns green and the board's numbers return.</li>
+  </ol>
+  <div class="callout tip">The daemon also posts a one-time macOS notification when this happens, so you'll usually hear about it before you look.</div>
+
+  <h2 id="bluetooth">Red icon: “Bluetooth access denied for Python”</h2>
+  <p>When the daemon starts for the first time, macOS asks whether it may use Bluetooth. If you clicked <em>Don't Allow</em> (or the dialog got dismissed), the daemon can't see the board and the icon turns red.</p>
+  <div class="legend">
+    <div class="card"><img src="img/prompt-bluetooth-python.png" alt="macOS dialog: python3.12 would like to use Bluetooth" style="width:150px;height:auto"><div><strong>Click Allow on this one</strong><br><span class="muted">It appears once, when the daemon first starts. It says “python3.12” because that is the program the daemon runs on.</span></div></div>
+    <div class="card"><img src="img/prompt-bluetooth-terminal.png" alt="macOS dialog: Terminal.app would like to use Bluetooth" style="width:150px;height:auto"><div><strong>Not this one</strong><br><span class="muted">You'll only see it if you run the daemon by hand in Terminal. Allowing it doesn't help the daemon.</span></div></div>
+  </div>
+  <h3>Fix it</h3>
+  <ol>
+    <li>Click the menu-bar icon, then click the <strong>Fix: allow Python…</strong> line. System Settings opens on the Bluetooth privacy list.</li>
+    <li>Turn on <strong>Python 3.12</strong>. Leave the other entries as they are.</li>
+    <li>Wait up to a minute. The icon turns amber, then green once the board connects. No restart needed.</li>
+  </ol>
+  <p>Python isn't in the list? Run this in Terminal to make macOS ask again, then click <em>Allow</em>:</p>
+  <pre>tccutil reset BluetoothAlways
+clawdmeter-setup</pre>
+  <p class="muted">(That first command makes every app ask for Bluetooth again, once. Just click Allow when they do.)</p>
+  <div class="callout tip">Two things that look wrong but aren't: switching the permission off doesn't stop a daemon that is already running (it takes effect at the next start), and a <code>brew upgrade</code> may make macOS ask once more. Same fix either way. If the error says “Bluetooth is turned off” instead, turn Bluetooth on in Control Center.</div>
+
+  <h2 id="pairing">Board won't connect, or shows “To pair…”</h2>
+  <p>Bluetooth pairing is a handshake stored on <em>both</em> sides. The common failure is that the two sides disagree: the board forgot the Mac (see the button warning), but the Mac still has an old entry. The fix is always the same — clear the Mac's side and pair fresh.</p>
+  <h3>Forget and re-pair</h3>
+  <ol>
+    <li>On the Mac: <em>System Settings → Bluetooth</em>. If Clawdmeter is listed under <em>My Devices</em>, click the <strong>ⓘ</strong> next to it and choose <strong>Forget This Device</strong>.</li>
+    <li>On the board: make sure it shows <strong>“To pair…”</strong>. If it shows anything else, hold <kbd>PWR</kbd> for about 3–5 seconds and <strong>release</strong> — the screen switches to “To pair…”.</li>
+    <li>Back in Bluetooth settings, Clawdmeter appears under <em>Nearby Devices</em>. Click <strong>Connect</strong>. Within about a minute the daemon attaches and the numbers appear.</li>
+  </ol>
+  <div class="callout warn"><strong>Two boards in the room?</strong> They both advertise as “Clawdmeter” and the list can't tell them apart. Power the other one off first (hold <kbd>PWR</kbd> a full 8 seconds), so exactly one “Clawdmeter” is listed — then connect. Connecting to someone else's board does no harm (it refuses you) but wastes your time.</div>
+  <details>
+    <summary>From the terminal instead of System Settings</summary>
+    <p>With <code>blueutil</code> installed (<code>brew install blueutil</code>), the daemon can repair a stale pairing by itself. To do it by hand:</p>
+<pre><code>addr=$(system_profiler SPBluetoothDataType | awk '/Clawdmeter:/{f=1} f &amp;&amp; /Address:/{print $2; exit}')
+blueutil --unpair "$addr"</code></pre>
+    <p class="muted">Stop the daemon first (<code>brew services stop clawdmeter</code>) — while it holds the link, macOS re-pairs immediately. <code>blueutil --paired</code> does not list Bluetooth LE devices, hence the <code>system_profiler</code> lookup.</p>
+  </details>
+  <h3>Moving a board to another Mac</h3>
+  <ol>
+    <li>On the old Mac: menu-bar icon → <em>Disconnect</em>, then Bluetooth settings → Forget This Device.</li>
+    <li>On the board: hold <kbd>PWR</kbd> 3–5 s and release → “To pair…”.</li>
+    <li>On the new Mac: install the daemon (<a href="#newmac">checklist</a>), then Bluetooth → Connect.</li>
+  </ol>
+
+  <h2 id="nodata">Board connected, icon amber, but no data</h2>
+  <p>Bluetooth is fine and the login is fine, yet nothing arrives. Click the icon → <em>Open log</em> and look at the last lines:</p>
+  <table>
+    <tr><th>Log says</th><th>Meaning</th><th>Fix</th></tr>
+    <tr id="tls"><td><code>CERTIFICATE_VERIFY_FAILED</code><br><span class="muted">Icon: “HTTPS certificate not trusted”</span></td><td>A corporate network is inspecting HTTPS (Zscaler and similar) and the daemon doesn't trust its certificate.</td><td><code>brew upgrade clawdmeter</code> — since v0.1.2 the daemon trusts whatever the Mac's Keychain trusts. Still failing? Your IT proxy's certificate isn't in the Keychain; ask IT to install it.</td></tr>
+    <tr id="offline"><td><code>API call failed</code><br><span class="muted">Icon: “Can't reach Anthropic”</span></td><td>No route to Anthropic: offline, VPN, captive Wi-Fi.</td><td>Fix the network; the daemon retries every 30 s on its own and the icon clears by itself.</td></tr>
+    <tr id="spend"><td><code>Spend fetch failed</code><br><span class="muted">Icon: “Spend figure not updating” (after 5 in a row)</span></td><td>Only the dollar lookup is failing; the rest of the board still updates with the last known $ figure.</td><td>Usually the same network problem as above. If everything else works, wait — the icon clears the moment one lookup succeeds.</td></tr>
+    <tr><td><code>Device not held by OS; waiting</code></td><td>macOS isn't connected to the board.</td><td>See <a href="#pairing">Board won't connect</a>.</td></tr>
+    <tr><td><code>Sending: {…}</code> every minute</td><td>The daemon is delivering. If the board still shows “No data”, it's a board problem.</td><td><a href="#restart">Restart the board</a>.</td></tr>
+  </table>
+
+  <h2 id="restart">Restart the board</h2>
+  <p>The <kbd>PWR</kbd> button does three different things depending on how long you hold it, so the timing matters:</p>
+  <table>
+    <tr><th>Hold for</th><th>Then</th><th>What happens</th></tr>
+    <tr><td>a tap</td><td>—</td><td>switches screens / cycles the splash animation</td></tr>
+    <tr><td><strong>3–6 s</strong></td><td><strong>release</strong></td><td><strong>pairing mode</strong> — the board <em>forgets its pairing</em> and shows “To pair…”</td></tr>
+    <tr><td>6–8 s</td><td>release</td><td>nothing (a safety gap)</td></tr>
+    <tr><td><strong>8 s</strong></td><td>keep holding</td><td><strong>power off</strong></td></tr>
+  </table>
+  <div class="callout warn"><strong>To turn it off, hold straight through to 8 seconds — don't let go early.</strong> Releasing around 3–5 s is the one thing you don't want: it wipes the pairing, and you'll have to <a href="#pairing">forget and re-pair</a>.</div>
+  <p><strong>To turn it back on</strong>, press <kbd>PWR</kbd> once, or plug in USB. If the board is on USB power it may simply restart when unplugged and plugged back in — with no battery installed, unplugging <em>is</em> the off switch.</p>
+  <p class="muted">The Mac side needs nothing: the daemon notices the board leaving and returning on its own.</p>
+
+  <h2 id="daemon">No icon in the menu bar / daemon not running</h2>
+  <ul>
+    <li><strong>Installed with Homebrew:</strong> <code>brew services info clawdmeter</code> shows whether it's running; <code>brew services start clawdmeter</code> starts it (and at every login from then on).</li>
+    <li><strong>Installed with the one-line script:</strong> <code>launchctl load -w ~/Library/LaunchAgents/com.user.claude-usage-daemon.plist</code>.</li>
+    <li><strong>First run ever?</strong> macOS asks whether <em>Python</em> may use Bluetooth the first time the service starts — the installers (<code>clawdmeter-setup</code> for Homebrew; the one-line installer) start it for you and tell you the outcome. If the icon is red with a Bluetooth message, see <a href="#bluetooth">Bluetooth permission denied</a>. If it stays amber and the log mentions Bluetooth, re-run <code>clawdmeter-setup</code> (or the one-line installer) and watch for the prompt.</li>
+    <li><strong>Icon deliberately hidden?</strong> <code>menubar = off</code> in <code>~/.config/claude-usage-monitor/config</code> runs it headless. Remove the line and restart the service to get the icon back.</li>
+    <li><strong>More than one icon?</strong> Two copies are running (e.g. Homebrew service <em>and</em> the old LaunchAgent). Keep one: <code>launchctl unload -w ~/Library/LaunchAgents/com.user.claude-usage-daemon.plist</code>, or <code>brew services stop clawdmeter</code>.</li>
+  </ul>
+
+  <h2 id="newmac">Setting up a new Mac (or a friend's)</h2>
+  <ol>
+    <li>Log into Claude Code on that Mac: <code>claude auth login</code>. The daemon can't work without it.</li>
+    <li>Install the daemon: <code>brew install ALVARR55/clawdmeter/clawdmeter</code>, then <code>clawdmeter-setup</code> — that second command starts the login service; click <em>Allow</em> when macOS asks whether Python may use Bluetooth. The one-line installer from the <a href="https://github.com/ALVARR55/Clawdmeter#macos-installation">README</a> does both in one go.</li>
+    <li>The icon appears in the menu bar (amber — no board yet).</li>
+    <li>Put the board in pairing mode if it isn't showing “To pair…” (hold <kbd>PWR</kbd> 3–5 s, release), then <em>System Settings → Bluetooth → Connect</em>.</li>
+    <li>Within a minute: green icon, numbers on the board.</li>
+  </ol>
+  <p class="muted">Tokens are counted from Claude Code's local transcripts, so that box is per-Mac; the $ figure is your account's, so it's the same on every Mac.</p>
+
+  <h2 id="buttons">Buttons on the board</h2>
+  <table>
+    <tr><th>Button (label on the board)</th><th>What it does</th></tr>
+    <tr><td><kbd>BOOT</kbd></td><td>Held → sends <kbd>Space</kbd> to the Mac as a keystroke: Claude Code's voice push-to-talk.</td></tr>
+    <tr><td><kbd>KEY</kbd></td><td>Press → sends <kbd>Shift</kbd>+<kbd>Tab</kbd>: cycles Claude Code's permission mode.</td></tr>
+    <tr><td><kbd>PWR</kbd></td><td>Tap: switch screen. Hold 3–5 s + release: pairing mode. Hold 8 s: power off. See <a href="#restart">Restart the board</a>.</td></tr>
+  </table>
+  <p class="muted">The keystrokes land in whichever window has focus, and only work while the board is connected to this Mac.</p>
+
+  <h2 id="logs">Logs and asking for help</h2>
+  <p>Menu-bar icon → <em>Open log</em>, or in Terminal:</p>
+<pre><code>tail -n 30 /opt/homebrew/var/log/clawdmeter.log          # Homebrew install
+tail -n 30 ~/Library/Logs/claude-usage-daemon.out.log    # one-line-script install</code></pre>
+  <p>When asking for help, paste the last ~10 log lines and say what the board's screen shows and what color the icon is — those three facts pin down almost every problem on this page.</p>
+  <div class="callout">Corporate network note: on networks that inspect HTTPS, the Mac's proxy can see the daemon's requests (the login token and the usage numbers), exactly as it sees your browser's. The daemon trusts only the certificates your Mac trusts; verification is never turned off.</div>
+
+  <footer>
+    Clawdmeter is an open-source desk display for Claude Code usage — <a href="https://github.com/ALVARR55/Clawdmeter">source and releases</a>. The board pictures are the real firmware (simulator renders); the icons are the ones the daemon draws.
+  </footer>
+</main>
+</body>
+</html>

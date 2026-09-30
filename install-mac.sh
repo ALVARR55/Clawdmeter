@@ -189,7 +189,7 @@ if [ ! -d "$VENV_DIR" ]; then
     "$PYTHON3" -m venv "$VENV_DIR"
 fi
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-"$VENV_DIR/bin/pip" install --quiet "bleak>=0.22" "httpx>=0.27" "truststore>=0.9"
+"$VENV_DIR/bin/pip" install --quiet "bleak>=0.22" "httpx>=0.27" "truststore>=0.9" "pystray>=0.19" "pillow>=10"
 PYTHON_BIN="$VENV_DIR/bin/python"
 echo "  OK ($PYTHON_BIN)"
 echo ""
@@ -215,47 +215,38 @@ configure_clock
 configure_chime
 echo ""
 
-echo "[5/6] Bluetooth permission check..."
-echo "  On first run the daemon will trigger a Bluetooth permission prompt."
-echo "  macOS only prompts for foreground processes — so we'll run it"
-echo "  interactively once below. Press Ctrl+C after you see 'Scanning...'"
-echo "  and grant permission when prompted. Then re-run this installer"
-echo "  (or just continue) to enable launchd autostart."
-echo ""
-# `|| ans=n`: with no terminal on stdin, `read` fails and `set -e` would abort
-# the whole install here; treat that as "no" and just load the service.
-read -r -p "Run a permission-priming scan now? [Y/n] " ans || ans="n"
-if [[ ! "$ans" =~ ^[Nn]$ ]]; then
-    "$PYTHON_BIN" "$DAEMON_PY" || true
-fi
-echo ""
-
-# blueutil needs its OWN Bluetooth permission (separate identity from the
-# Python daemon) to auto-recover from a stale bond. It BLOCKS instead of
-# erroring when unauthorized, so prime it now behind a bounded wait: this
-# returns instantly if already authorized, or triggers the one-time Bluetooth
-# permission prompt (the grant sticks even if we time out before you click).
-if command -v blueutil >/dev/null 2>&1; then
-    echo "  Priming blueutil's Bluetooth permission (grant if prompted)..."
-    blueutil --paired >/dev/null 2>&1 &
-    bu_pid=$!
-    ( sleep 20; kill "$bu_pid" 2>/dev/null ) >/dev/null 2>&1 &
-    bu_killer=$!
-    if wait "$bu_pid" 2>/dev/null; then
-        echo "  blueutil authorized — stale-bond auto-recovery enabled."
-    else
-        echo "  blueutil could not access Bluetooth yet. If auto-recovery"
-        echo "  fails later, grant it under System Settings > Privacy &"
-        echo "  Security > Bluetooth, then re-run: blueutil --paired"
-    fi
-    kill "$bu_killer" 2>/dev/null || true
-fi
-echo ""
-
-echo "[6/6] Loading launchd service..."
+echo "[5/6] Loading launchd service..."
+log_off=$(stat -f %z "$LOG_OUT" 2>/dev/null || echo 0)
 launchctl unload "$PLIST_DST" 2>/dev/null || true
 launchctl load -w "$PLIST_DST"
 echo "  Loaded."
+echo ""
+
+# The Bluetooth permission belongs to the process macOS holds "responsible".
+# A launchd service is responsible for itself, so the prompt for the daemon
+# appears NOW, as the service starts — running the daemon from this Terminal
+# beforehand would only grant Terminal. Watch the service's own log for the
+# outcome so a denied prompt is caught here, not discovered later.
+echo "[6/6] Bluetooth check..."
+echo "  If macOS asks whether \"Python\" may use Bluetooth, click Allow (one time)."
+bt_verdict=""
+for _ in $(seq 1 45); do
+    bt_new=$(tail -c +$((log_off + 1)) "$LOG_OUT" 2>/dev/null || true)
+    if printf '%s' "$bt_new" | grep -qE "Found system-connected|Device not held by OS|Connected$"; then
+        bt_verdict=ok; break
+    fi
+    if printf '%s' "$bt_new" | grep -q "CoreBluetooth unavailable"; then
+        bt_verdict=denied; break
+    fi
+    sleep 1
+done
+case "$bt_verdict" in
+    ok)     echo "  Bluetooth OK." ;;
+    denied) echo "  Bluetooth is denied or switched off. Enable 'Python' under System Settings >"
+            echo "  Privacy & Security > Bluetooth (or turn Bluetooth on); the service retries by itself." ;;
+    *)      echo "  No Bluetooth response after 45 s. If a permission prompt is showing, click Allow —"
+            echo "  the service keeps retrying on its own. Log: $LOG_OUT" ;;
+esac
 echo ""
 
 echo "=== Done ==="

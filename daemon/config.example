@@ -42,3 +42,11 @@ chime = off
 #   12   = show the clock, forced 12-hour  (e.g. 6:28 PM)
 #   24   = show the clock, forced 24-hour  (e.g. 18:28)
 clock = off
+
+# macOS: show a Clawdmeter status icon in the menu bar — green when the board
+# is receiving data, amber while waiting for the board (or when nothing has
+# been sent for 3 minutes), red when Claude Code isn't logged in. Click it for
+# the last update time, "Open log", and Quit.
+#   on  = show the icon (default)
+#   off = run headless, as before
+# menubar = on

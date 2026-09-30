@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for the macOS daemon's one-shot "run claude login" notification.
+"""Unit tests for the macOS daemon's one-shot "run claude auth login" notification.
 
 The banner must fire once per no-token outage (not every 60 s poll) and
 re-arm after a successful poll.
@@ -21,7 +21,8 @@ def test_notifies_once_per_outage():
         assert mod.note_no_token() is True
         assert mod.note_no_token() is False
         assert mod.note_no_token() is False
-    notify.assert_called_once_with(mod.LOGIN_NOTICE_TITLE, mod.LOGIN_NOTICE_TEXT)
+    notify.assert_called_once_with(mod.LOGIN_NOTICE_TITLE, mod.login_notice_text())
+    assert mod.LOGIN_FIX in mod.login_notice_text()
 
 
 def test_rearms_after_a_successful_poll():

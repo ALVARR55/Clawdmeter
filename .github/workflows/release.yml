@@ -54,11 +54,14 @@ jobs:
       - name: Package the macOS daemon
         run: |
           set -euo pipefail
-          mkdir -p dist/clawdmeter/daemon
+          mkdir -p dist/clawdmeter/daemon dist/clawdmeter/assets
           cp daemon/claude_usage_daemon.py \
+             daemon/menubar_macos.py \
+             daemon/icon_assets.py \
              daemon/com.user.claude-usage-daemon.plist \
              daemon/config.example \
              dist/clawdmeter/daemon/
+          cp assets/logo_80.png dist/clawdmeter/assets/
           cp install-mac.sh flash-release.sh dist/clawdmeter/
           echo "${GITHUB_REF_NAME}" > dist/clawdmeter/VERSION
           tar -C dist -czf clawdmeter-daemon-macos.tar.gz clawdmeter

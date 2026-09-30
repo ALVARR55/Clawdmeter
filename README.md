@@ -10,6 +10,26 @@ Shift+Tab over BLE HID for Claude Code's voice mode and mode-toggle shortcuts.
 
 <img width="1179" height="994" alt="Usage meter" src="https://github.com/user-attachments/assets/83e54aea-0932-428f-94aa-b3ede3a360aa" />
 
+## Quick start (macOS, board already flashed)
+
+Two ways to get the daemon running. Both need Claude Code logged in on this Mac first (`claude auth login`).
+
+**Homebrew** — recommended; `brew upgrade` keeps it current:
+
+```bash
+brew install ALVARR55/clawdmeter/clawdmeter && clawdmeter-setup
+```
+
+**One-line installer** — no Homebrew needed:
+
+```bash
+curl -fsSL https://github.com/ALVARR55/Clawdmeter/releases/latest/download/install-from-release.sh | bash
+```
+
+Either way: click **Allow** when macOS asks whether "python3.12" may use Bluetooth, then pair the board — *System Settings → Bluetooth → Connect "Clawdmeter"* (hold the board's PWR button 3 s and release if it isn't showing "To pair…"). A Clawdmeter icon appears in the menu bar: amber while it waits for the board, green once data is flowing. The daemon starts at every login from then on.
+
+Something off? The icon's menu links to the [troubleshooting FAQ](https://alvarr55.github.io/Clawdmeter/troubleshooting.html). Flashing a board yourself, and the Linux/Windows daemons, are covered further down.
+
 ## Screens
 
 The device boots into the splash. Tap the screen anywhere to switch to the Usage view; tap again to flip back to the splash.
@@ -60,7 +80,7 @@ If your board is already flashed and you just want the daemon — or you want th
 curl -fsSL https://github.com/ALVARR55/Clawdmeter/releases/latest/download/install-from-release.sh | bash
 ```
 
-That downloads the daemon into `~/.clawdmeter`, creates its Python venv, registers the LaunchAgent (auto-starts at login, restarts if it crashes), and runs it once in the foreground so macOS shows the Bluetooth permission prompt. Re-running it later upgrades in place. To flash a board with the matching prebuilt image — one merged `.factory.bin` per board is attached to every release:
+That downloads the daemon into `~/.clawdmeter`, creates its Python venv, registers and loads the LaunchAgent (auto-starts at login, restarts if it crashes), then watches its first start and tells you whether Bluetooth is reachable. macOS asks once whether "python3.12" may use Bluetooth — click Allow. No questions, no Ctrl-C. Re-running it later upgrades in place. To flash a board with the matching prebuilt image — one merged `.factory.bin` per board is attached to every release:
 
 ```bash
 cd ~/.clawdmeter && ./flash-release.sh waveshare_amoled_216_c6     # or any board env
@@ -70,8 +90,7 @@ cd ~/.clawdmeter && ./flash-release.sh waveshare_amoled_216_c6     # or any boar
 
 ```bash
 brew install ALVARR55/clawdmeter/clawdmeter
-clawdmeter-daemon               # run once in the foreground: click Allow on the Bluetooth prompt, then Ctrl-C
-brew services start clawdmeter  # login service from here on; logs in $(brew --prefix)/var/log/clawdmeter.log
+clawdmeter-setup                # starts the login service; click Allow when macOS asks if Python may use Bluetooth
 clawdmeter-flash waveshare_amoled_216_c6   # optional: flash the matching release firmware
 ```
 
@@ -101,9 +120,11 @@ The daemon reads your Claude OAuth token from the macOS Keychain (service `Claud
 ./install-mac.sh
 ```
 
-The installer creates a Python venv in `daemon/.venv/`, installs `bleak` and `httpx`, renders a LaunchAgent into `~/Library/LaunchAgents/com.user.claude-usage-daemon.plist`, and loads it. The first run is launched interactively so macOS prompts for Bluetooth permission.
+The installer creates a Python venv in `daemon/.venv/`, installs the daemon's dependencies, renders a LaunchAgent into `~/Library/LaunchAgents/com.user.claude-usage-daemon.plist`, loads it, and watches the daemon's log for its first Bluetooth contact — that is when macOS shows the one-time "python3.12 would like to use Bluetooth" prompt (click Allow). The prompt belongs to the service itself; running the daemon by hand from Terminal would only grant Terminal.
 
-The daemon never refreshes your Claude Code login itself. When the token expires it puts the device on "No data" and posts one Notification Center banner — *"Claude Code login expired — run `claude login`"* — then stays quiet until a poll succeeds again.
+The daemon never refreshes your Claude Code login itself. When the token expires it puts the device on "No data" and posts one Notification Center banner — *"Claude Code login expired — run `claude auth login`"* — then stays quiet until a poll succeeds again.
+
+On macOS the daemon also puts a small Clawdmeter icon in the **menu bar**: green while the board is receiving data, amber while waiting for the board (or if nothing has been sent for three minutes), red when Claude Code isn't logged in, macOS is refusing the daemon Bluetooth, or Anthropic can't be reached (each with a clickable fix line; network errors open the matching FAQ entry). Click it for the last update time, *Disconnect* / *Reconnect* (drop the Bluetooth link and hold off reconnecting — the board shows its waiting screen and the icon turns gray until you reconnect; handy when handing a board to another Mac), *Open log*, and *Quit* — quitting stops the daemon until your next login. If Claude Code isn't logged in on the Mac, the icon turns red and the menu says so, with the fix (`claude auth login`) on the next line — even before a board is paired. Same if the Bluetooth permission was denied at first run: the icon turns red, the menu names the fix (the grant is listed under **Python 3.12**, Homebrew's interpreter), and clicking that *Fix:* line jumps straight to the System Settings pane; the daemon recovers on its own once it's allowed. The menu also links to the [troubleshooting FAQ](https://alvarr55.github.io/Clawdmeter/troubleshooting.html), which walks through every red and amber state with pictures. Set `menubar = off` in `~/.config/claude-usage-monitor/config` to run headless instead.
 
 Corporate networks that inspect HTTPS (Zscaler and similar) re-sign Anthropic's certificate with a company root CA that macOS trusts but Python's bundled certificate list doesn't. The daemon uses [`truststore`](https://pypi.org/project/truststore/) to verify TLS against the macOS Keychain instead, so it works on those networks too; if you see `CERTIFICATE_VERIFY_FAILED` in the log on an older install, upgrade.
 
@@ -166,7 +187,7 @@ Runs natively on Windows — no WSL required. A system-tray app polls your usage
 
 - **Native Windows** (not WSL).
 - **Python 3.11+** from [python.org](https://www.python.org/downloads/) — check _"Add python.exe to PATH"_ during install.
-- **Claude Code** installed, with `claude login` completed. The token is read from `%USERPROFILE%\.claude\.credentials.json` (falling back to `%LOCALAPPDATA%\Claude\` then `%APPDATA%\Claude\`).
+- **Claude Code** installed, with `claude auth login` completed. The token is read from `%USERPROFILE%\.claude\.credentials.json` (falling back to `%LOCALAPPDATA%\Claude\` then `%APPDATA%\Claude\`).
 - The repo on a **native Windows path** (e.g. `%USERPROFILE%\Clawdmeter`), **not** a `\\wsl$` share — the installer refuses a WSL path.
 
 ### Flash the firmware
@@ -218,7 +239,7 @@ reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v Clawdmeter /f
 | Symptom                                | Fix                                                      |
 | -------------------------------------- | -------------------------------------------------------- |
 | `Device not found`                     | Power on the device; make sure it's in range and paired. |
-| `token expired` toast / `API HTTP 401` | Re-run `claude login`, then restart the daemon.          |
+| `token expired` toast / `API HTTP 401` | Re-run `claude auth login`, then restart the daemon.          |
 | `Connection failed`                    | Toggle Windows Bluetooth off/on in Settings.             |
 | `Warning: running under Linux/WSL`     | Run from a native PowerShell window, not a WSL shell.    |
 
