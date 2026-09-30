@@ -245,7 +245,7 @@ def test_install_hooks_is_idempotent_and_keeps_other_hooks(tmp_path):
     stops = d["hooks"]["Stop"]
     assert len(stops) == 2 and stops[0]["hooks"][0]["command"] == "echo someone-else"
     assert mod.HOOK_TAG in stops[1]["hooks"][0]["command"] and "printf done" in stops[1]["hooks"][0]["command"]
-    assert d["hooks"]["Notification"][0]["matcher"] == "permission_prompt|idle_prompt|agent_needs_input"
+    assert d["hooks"]["Notification"][0]["matcher"] == "permission_prompt|agent_needs_input"
     assert "printf clear" in d["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
     mod.install_claude_hooks(p, remove=True)
     d = json.loads(p.read_text())

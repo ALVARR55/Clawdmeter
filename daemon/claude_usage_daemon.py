@@ -672,8 +672,11 @@ def _hook_cmd(word: str) -> str:
 CLAWDMETER_HOOKS = {
     # Claude finished its turn -> "Done"
     "Stop": {"hooks": [{"type": "command", "command": _hook_cmd("done")}]},
-    # Claude is blocked on a permission prompt or idle -> "Claude needs you"
-    "Notification": {"matcher": "permission_prompt|idle_prompt|agent_needs_input",
+    # Claude is blocked on a permission prompt (or an agent waits on input) ->
+    # "Claude needs you". Deliberately NOT idle_prompt: Claude Code sends that
+    # 60 s after every finished turn, which would turn every "Done" into a
+    # false "needs you" a minute later.
+    "Notification": {"matcher": "permission_prompt|agent_needs_input",
                      "hooks": [{"type": "command", "command": _hook_cmd("needs")}]},
     # The user typed the next prompt -> the board's banner is stale, clear it
     "UserPromptSubmit": {"hooks": [{"type": "command", "command": _hook_cmd("clear")}]},
