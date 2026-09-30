@@ -329,5 +329,14 @@ def run(daemon_main, log) -> None:
                 prev["state"], prev["header"] = st, header
             time.sleep(1.0)
 
+    # Menu-bar-only app: without this the process is a regular GUI app and
+    # macOS shows Python's rocket icon in the Dock for as long as it runs.
+    # Accessory policy = no Dock tile, no app menu, still allowed a status item.
+    try:
+        from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+        NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    except Exception as e:  # pragma: no cover - cosmetic; never block startup on it
+        log(f"menubar: could not hide the Dock icon: {e!r}")
+
     log("menubar: status icon enabled (menubar = off in the config to disable)")
     icon.run(setup=_refresh)   # blocks the main thread until icon.stop()
