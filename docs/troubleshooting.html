@@ -178,6 +178,7 @@ clawdmeter-setup</pre>
     <li>Back in Bluetooth settings, Clawdmeter appears under <em>Nearby Devices</em>. Click <strong>Connect</strong>. Within about a minute the daemon attaches and the numbers appear.</li>
   </ol>
   <div class="callout warn"><strong>Two boards in the room?</strong> Give each its own name: <code>clawdmeter-flash --name Ricardo</code> (board plugged in over USB) makes it advertise as “Clawdmeter-Ricardo”, and the name is printed on the board's pairing screen so you know which one you're holding. Unnamed boards all advertise as “Clawdmeter” and the list can't tell them apart — power the other one off first (hold <kbd>PWR</kbd> a full 8 seconds) so exactly one is listed, then connect. Connecting to someone else's board does no harm (it refuses you) but wastes your time.</div>
+  <p class="muted"><strong>Renamed the board but your Mac still shows the old name?</strong> macOS keeps the first name it ever saw for a device and doesn't refresh it — not on forget, not on re-pair. The new name is real (the board's pairing screen and any phone or other Mac show it); on this Mac just click ⓘ next to the device and type the name you want.</p>
   <details>
     <summary>From the terminal instead of System Settings</summary>
     <p>With <code>blueutil</code> installed (<code>brew install blueutil</code>), the daemon can repair a stale pairing by itself. To do it by hand:</p>
