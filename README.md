@@ -28,6 +28,14 @@ curl -fsSL https://github.com/ALVARR55/Clawdmeter/releases/latest/download/insta
 
 Either way: click **Allow** when macOS asks whether "python3.12" may use Bluetooth, then pair the board — *System Settings → Bluetooth → Connect "Clawdmeter"* (hold the board's PWR button 3 s and release if it isn't showing "To pair…"). A Clawdmeter icon appears in the menu bar: amber while it waits for the board, green once data is flowing. The daemon starts at every login from then on.
 
+**Give your board a name** (optional, but handy when several are around). Plug it in over USB and run:
+
+```bash
+clawdmeter-flash --name Ricardo        # board now advertises as "Clawdmeter-Ricardo"; no re-flash
+```
+
+Up to 7 letters, digits, `-` or `_`. The name is stored on the board and shows on its pairing screen. `clawdmeter-flash --name -` goes back to plain "Clawdmeter". A Mac that already knew the board keeps the old name; rename it there with the ⓘ button.
+
 Something off? The icon's menu links to the [troubleshooting FAQ](https://alvarr55.github.io/Clawdmeter/troubleshooting.html). Flashing a board yourself, and the Linux/Windows daemons, are covered further down.
 
 ## Screens
