@@ -17,6 +17,8 @@ struct UsageData {
     float cost_usd;          // $ spent this billing period, as reported by Anthropic's OAuth usage endpoint (Enterprise); <0 = daemon didn't send "cost"
     long clock_epoch;        // local wall-clock epoch (s) from daemon; 0 = not provided
     int  clock_fmt;          // 12 or 24 (hour format from daemon); defaults to 24
+    bool has_usage;          // payload carried usage fields ("s" present); false for event-only payloads
+    char event[8];           // Claude Code event from the daemon's hooks: "done" | "needs" | "clear" | "" (none)
     bool ok;                 // data parse succeeded
     bool valid;              // false until first successful parse
 };

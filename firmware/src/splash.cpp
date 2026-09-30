@@ -61,8 +61,10 @@ static const char* GROUP_NAMES[GROUP_COUNT][GROUP_MAX] = {
     { "magnifier", "walking", "pointing", "lurking" },
     // Group 1 — normal pace
     { "crab walking", "waving", "trumpet", "basketball" },
-    // Group 2 — active (typing along with you)
-    { "laptop", "dancing", "skateboard", "soccer" },
+    // Group 2 — active. (Laptop is reserved for the "Claude needs you"
+    // attention screen — Clawd at the keyboard means it's your turn to type —
+    // so it never rotates here.)
+    { "dancing", "skateboard", "soccer" },
     // Group 3 — heavy burn (high-energy rides + the most exuberant jump)
     { "racing car", "cloud", "sailing scene", "jumping happy" },
 };
@@ -90,6 +92,7 @@ static uint8_t stage_cells[GRID * GRID];
 static bool     pb_done = false;        // completed; holding idle frame 0
 static bool     in_loop = false;
 static bool     loop_release = false;
+static bool     held = false;           // attention mode: loop the current animation forever
 static uint32_t loop_entered_ms = 0;
 static bool     pending_pick = false;   // rotate requested; honor at completion
 #define SCENE_LOOP_MS 6000
@@ -762,13 +765,14 @@ void splash_tick(void) {
     if (walk_active) walk_choreo(a);
 
     // Scenes: hold the loop for SCENE_LOOP_MS, then let the outro play.
-    if (!walk_active && in_loop && !loop_release &&
+    if (!held && !walk_active && in_loop && !loop_release &&
         now - loop_entered_ms >= SCENE_LOOP_MS)
         loop_release = true;
 
     // Auto-rotate — never a hard cut. Walkers switch only while standing at
     // home; everything else releases its loop and switches after the outro.
-    if (now - last_pick_ms >= SPLASH_ROTATE_INTERVAL_MS) {
+    // Attention mode (held) keeps looping the chosen animation instead.
+    if (!held && now - last_pick_ms >= SPLASH_ROTATE_INTERVAL_MS) {
         if (walk_active) {
             if (walk_phase == 0 && pb_done) splash_pick_for_current_rate();
         } else {
@@ -825,6 +829,28 @@ void splash_tick(void) {
     render_frame(compose_stage(a, cur_frame), a->palette);
 }
 
+bool splash_play(const char *anim_name) {
+    for (int i = 0; i < SPLASH_ANIM_COUNT; i++) {
+        if (strcmp(splash_anims[i].name, anim_name) != 0) continue;
+        cur_anim = (uint16_t)i;
+        cur_frame = 0;
+        frame_started_ms = millis();
+        last_pick_ms = frame_started_ms;
+        const splash_anim_def_t *a = &splash_anims[cur_anim];
+        anim_reset(a);
+        render_frame(compose_stage(a, 0), a->palette);
+#if SPLASH_DIRECT_DRAW
+        force_full = true;
+#endif
+        Serial.printf("splash: play %s\n", a->name);
+        return true;
+    }
+    return false;
+}
+
+void splash_hold(bool hold) { held = hold; }
+bool splash_is_held(void) { return held; }
+
 void splash_next(void) {
     if (SPLASH_ANIM_COUNT == 0) return;
     cur_anim = (cur_anim + 1) % SPLASH_ANIM_COUNT;
@@ -860,7 +886,7 @@ void splash_pick_for_current_rate(void) {
 bool splash_is_active(void) { return active; }
 
 void splash_show(void) {
-    splash_pick_for_current_rate();   // select animation; direct path defers the draw
+    if (!held) splash_pick_for_current_rate();   // select animation; direct path defers the draw
     if (splash_container) lv_obj_clear_flag(splash_container, LV_OBJ_FLAG_HIDDEN);
     active = true;
 #if SPLASH_DIRECT_DRAW

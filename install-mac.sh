@@ -249,6 +249,13 @@ case "$bt_verdict" in
 esac
 echo ""
 
+# Claude Code hooks: Stop / Notification / UserPromptSubmit write one word into
+# the daemon's event file so the board can show "Done" / "Claude needs you".
+# Merges into ~/.claude/settings.json; idempotent; other hooks untouched.
+echo "Claude Code hooks..."
+echo "  $("$PYTHON_BIN" "$DAEMON_PY" --install-hooks 2>&1 | tail -1)"
+echo ""
+
 echo "=== Done ==="
 echo ""
 echo "First-time Bluetooth pairing (after firmware is flashed):"

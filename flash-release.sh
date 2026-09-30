@@ -14,10 +14,12 @@ VERSION="${CLAWDMETER_VERSION:-latest}"
 BOARD=""
 PORT=""
 NAME=""        # --name <suffix>: advertise as "Clawdmeter-<suffix>" (or "-" to clear)
+WIPE=0         # --wipe: don't preserve the board's settings partition (bonds, name)
 while [ $# -gt 0 ]; do
     case "$1" in
         --name|-n) NAME="${2:-}"; [ $# -ge 2 ] && shift ;;
         --name=*)  NAME="${1#--name=}" ;;
+        --wipe)    WIPE=1 ;;
         -h|--help) BOARD="" ; NAME=""; break ;;
         *) if [ -z "$BOARD" ]; then BOARD="$1"; else PORT="$1"; fi ;;
     esac
@@ -33,6 +35,8 @@ if [ -z "$BOARD" ] && [ -z "$NAME" ]; then
     for e in $ENVS; do echo "  $e"; done
     echo "--name gives the board a unique Bluetooth name, Clawdmeter-<suffix> (1-7 letters,"
     echo "digits, '-' or '_'), shown on its pairing screen. '--name -' restores plain Clawdmeter."
+    echo "Flashing keeps the board's pairing and name (its NVS partition is saved and restored);"
+    echo "pass --wipe for a factory-fresh board that must be paired again."
     exit 1
 fi
 if [ -n "$BOARD" ]; then
@@ -97,8 +101,38 @@ fi
 "$PY" -c "import serial" >/dev/null 2>&1 || "$PY" -m pip install --quiet pyserial
 
 if [ -n "$BOARD" ]; then
+    # The merged image spans the NVS partition (0x9000, 20 KB on every board's
+    # partition table), so a plain write erases the Bluetooth bond, the owner
+    # lock and the board's name — and the user has to forget/re-pair after every
+    # update. Save that partition first and put it back afterwards.
+    NVS_OFF=0x9000; NVS_LEN=0x5000
+    nvs_bak=""
+    if [ "$WIPE" = 0 ]; then
+        nvs_bak=$(mktemp)
+        echo "Saving the board's settings (pairing, name) ..."
+        if ! "$PY" -m esptool --chip "$CHIP" --port "$PORT" --baud 921600 read-flash $NVS_OFF $NVS_LEN "$nvs_bak" >/dev/null 2>&1; then
+            echo "  (could not read them; the board will need to be paired again)"
+            rm -f "$nvs_bak"; nvs_bak=""
+        fi
+    fi
     echo "Flashing $BOARD ($CHIP) on $PORT ..."
-    "$PY" -m esptool --chip "$CHIP" --port "$PORT" --baud 921600 write_flash 0x0 "$BIN"
+    "$PY" -m esptool --chip "$CHIP" --port "$PORT" --baud 921600 write-flash 0x0 "$BIN"
+    if [ -n "$nvs_bak" ]; then
+        echo "Restoring the board's settings ..."
+        restored=0
+        for _ in $(seq 1 20); do   # the native-USB port re-enumerates after esptool's reset
+            if "$PY" -m esptool --chip "$CHIP" --port "$PORT" --baud 921600 write-flash $NVS_OFF "$nvs_bak" >/dev/null 2>&1; then
+                restored=1; break
+            fi
+            sleep 1
+        done
+        if [ "$restored" = 1 ]; then
+            echo "  Pairing and name kept."
+        else
+            echo "  Warning: could not restore them; pair the board again (System Settings > Bluetooth)."
+        fi
+        rm -f "$nvs_bak"
+    fi
     echo "Done. The board reboots into the splash; tap the screen for the Usage view."
 fi
 

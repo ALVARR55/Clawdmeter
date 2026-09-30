@@ -85,6 +85,7 @@
     <li><a href="#icon">The menu-bar icon</a></li>
     <li><a href="#login">Not logged in</a></li>
     <li><a href="#bluetooth">Bluetooth permission denied</a></li>
+    <li><a href="#events">“Claude needs you” / “Done”</a></li>
     <li><a href="#pairing">Won't connect / re-pair</a></li>
     <li><a href="#nodata">Connected but no data</a></li>
     <li><a href="#restart">Restart the board</a></li>
@@ -168,6 +169,13 @@
 clawdmeter-setup</pre>
   <p class="muted">(That first command makes every app ask for Bluetooth again, once. Just click Allow when they do.)</p>
   <div class="callout tip">Two things that look wrong but aren't: switching the permission off doesn't stop a daemon that is already running (it takes effect at the next start), and a <code>brew upgrade</code> may make macOS ask once more. Same fix either way. If the error says “Bluetooth is turned off” instead, turn Bluetooth on in Control Center.</div>
+
+  <h2 id="events">The board says “Claude needs you” or “Done”</h2>
+  <p>That's Claude Code talking to the board. Three tiny hooks in <code>~/.claude/settings.json</code> (added by the installer) tell the daemon when Claude has stopped to ask you something — a permission prompt, or it's waiting for your input — and when it has finished a turn. The board shows <strong>“Claude needs you”</strong> (Clawd at his laptop) or <strong>“Done”</strong> and keeps it up until you <strong>tap the screen</strong>. Typing your next prompt clears it as well.</p>
+  <ul>
+    <li><strong>Never shows up?</strong> Run <code>clawdmeter-daemon --install-hooks</code> once (the installer normally does this) and check that <code>events</code> isn't set to <code>off</code> in <code>~/.config/claude-usage-monitor/config</code>. Hooks apply to new and running Claude Code sessions alike.</li>
+    <li><strong>Don't want it?</strong> <code>events = off</code> in that config file silences the board; <code>clawdmeter-daemon --remove-hooks</code> removes the hooks and leaves any others you have untouched.</li>
+  </ul>
 
   <h2 id="pairing">Board won't connect, or shows “To pair…”</h2>
   <p>Bluetooth pairing is a handshake stored on <em>both</em> sides. The common failure is that the two sides disagree: the board forgot the Mac (see the button warning), but the Mac still has an old entry. The fix is always the same — clear the Mac's side and pair fresh.</p>

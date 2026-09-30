@@ -579,6 +579,143 @@ def read_chime_setting() -> str:
     return "off"
 
 
+def read_events_setting() -> str:
+    """`events = on|off` in the config: forward Claude Code hook events
+    ("done" / "needs" / "clear") to the board. Default on."""
+    try:
+        if CONFIG_FILE.exists():
+            for line in CONFIG_FILE.read_text().splitlines():
+                line = line.split("#", 1)[0].strip()
+                if "=" not in line:
+                    continue
+                key, val = line.split("=", 1)
+                if key.strip().lower() == "events":
+                    val = val.strip().lower()
+                    if val in ("off", "0", "false", "no"):
+                        return "off"
+                    return "on"
+    except OSError:
+        pass
+    return "on"
+
+
+# --- Claude Code events -------------------------------------------------------
+# Claude Code hooks (Stop / Notification / UserPromptSubmit) write one word into
+# EVENT_FILE; the daemon watches the file's mtime and forwards the word to the
+# board as "ev" on a payload of its own, so the board can show "Done" or
+# "Claude needs you" until the user taps it. No sockets, no listeners: a file
+# in the user's own config dir is the whole transport.
+EVENT_FILE = CONFIG_FILE.parent / "event"
+EVENT_WORDS = ("done", "needs", "clear")
+EVENT_POLL_S = 0.5
+EVENT_MAX_AGE_S = 120        # ignore an event written long before we looked (daemon was down)
+
+
+class EventInbox:
+    """Watches EVENT_FILE and raises `pending` when a fresh event word lands."""
+
+    def __init__(self, path: Path = EVENT_FILE) -> None:
+        self.path = path
+        self.pending = asyncio.Event()
+        self.event: str | None = None
+        self._seen_ns = self._mtime_ns()   # whatever is there now is history
+
+    def _mtime_ns(self) -> int:
+        try:
+            return self.path.stat().st_mtime_ns
+        except OSError:
+            return 0
+
+    def check(self, now: float | None = None) -> str | None:
+        """Poll once: returns the new event word (and sets `pending`) or None."""
+        ns = self._mtime_ns()
+        if ns == self._seen_ns:
+            return None
+        self._seen_ns = ns
+        now = time.time() if now is None else now
+        if ns and now - ns / 1e9 > EVENT_MAX_AGE_S:
+            return None
+        try:
+            word = self.path.read_text().strip().lower()
+        except OSError:
+            return None
+        if word not in EVENT_WORDS:
+            log(f"Ignoring unknown event '{word[:20]}' in {self.path}")
+            return None
+        self.event = word
+        self.pending.set()
+        return word
+
+    def take(self) -> str | None:
+        """Consume the pending event (or None)."""
+        self.pending.clear()
+        ev, self.event = self.event, None
+        return ev
+
+    async def watch(self) -> None:
+        while True:
+            self.check()
+            await asyncio.sleep(EVENT_POLL_S)
+
+
+# The hooks themselves. Each is a one-liner that drops a word into EVENT_FILE;
+# identified for install/remove by HOOK_TAG in the command, never by position.
+HOOK_TAG = "claude-usage-monitor/event"
+CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
+
+
+def _hook_cmd(word: str) -> str:
+    return (f'mkdir -p "$HOME/.config/claude-usage-monitor" && '
+            f'printf {word} > "$HOME/.config/{HOOK_TAG}"')
+
+
+CLAWDMETER_HOOKS = {
+    # Claude finished its turn -> "Done"
+    "Stop": {"hooks": [{"type": "command", "command": _hook_cmd("done")}]},
+    # Claude is blocked on a permission prompt or idle -> "Claude needs you"
+    "Notification": {"matcher": "permission_prompt|idle_prompt|agent_needs_input",
+                     "hooks": [{"type": "command", "command": _hook_cmd("needs")}]},
+    # The user typed the next prompt -> the board's banner is stale, clear it
+    "UserPromptSubmit": {"hooks": [{"type": "command", "command": _hook_cmd("clear")}]},
+}
+
+
+def _is_ours(entry: dict) -> bool:
+    return any(HOOK_TAG in (h.get("command") or "") for h in entry.get("hooks", []) if isinstance(h, dict))
+
+
+def install_claude_hooks(settings_path: Path = CLAUDE_SETTINGS, remove: bool = False) -> str:
+    """Merge (or remove) the Clawdmeter hooks in Claude Code's user settings.
+    Idempotent; other hooks are left untouched. Returns a one-line summary."""
+    data: dict = {}
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text() or "{}")
+        except json.JSONDecodeError as e:
+            return f"not touching {settings_path}: it is not valid JSON ({e})"
+    hooks = data.setdefault("hooks", {})
+    changed = 0
+    for event, entry in CLAWDMETER_HOOKS.items():
+        entries = [e for e in hooks.get(event, []) if not _is_ours(e)]
+        if not remove:
+            entries.append(entry)
+        if entries != hooks.get(event, []):
+            changed += 1
+        if entries:
+            hooks[event] = entries
+        else:
+            hooks.pop(event, None)
+    if not hooks:
+        data.pop("hooks", None)
+    if changed:
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = settings_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n")
+        tmp.replace(settings_path)
+    what = "removed" if remove else "installed"
+    return f"Clawdmeter hooks {what} in {settings_path} ({changed} event(s) changed)"
+
+
 def read_menubar_setting() -> str:
     """`menubar = on|off` from the config (macOS only). Default on: a status
     icon in the menu bar showing connected / waiting / error and the last
@@ -1112,11 +1249,23 @@ async def connect_and_run(target, stop_event: asyncio.Event, tray_state=None) ->
 
     last_poll = 0.0
     used_successfully = False
+    last_payload: dict | None = None
+    inbox = EventInbox()
+    inbox_task = asyncio.ensure_future(inbox.watch())
     try:
         while client.is_connected and not stop_event.is_set() \
                 and not (tray_state is not None and tray_state.paused):
             now = time.time()
             elapsed = now - last_poll
+            if inbox.pending.is_set():
+                ev = inbox.take()
+                if ev and read_events_setting() == "on":
+                    # Ride on the last numbers so the board keeps them; the
+                    # firmware treats a payload without "s" as event-only.
+                    ev_payload = dict(last_payload) if last_payload else {}
+                    ev_payload["ev"] = ev
+                    log(f"Claude Code event -> device: {ev}")
+                    await session.write_payload(ev_payload)
             if session.refresh_requested.is_set() or elapsed >= POLL_INTERVAL:
                 session.refresh_requested.clear()
                 # Pure free-ride: read whatever access token(s) Claude Code
@@ -1132,6 +1281,7 @@ async def connect_and_run(target, stop_event: asyncio.Event, tray_state=None) ->
                     if await session.write_payload(payload):
                         last_poll = time.time()
                         used_successfully = True
+                        last_payload = payload
                         if tray_state:
                             tray_state.set_connected(last_poll)
                             if spend_problem():
@@ -1164,10 +1314,14 @@ async def connect_and_run(target, stop_event: asyncio.Event, tray_state=None) ->
                         reason, fix, anchor = network_problem()
                         tray_state.set_error(reason, fix, action=f"faq:{anchor}")
 
+            # Sleep until the next tick, a device refresh request, or a hook event.
+            waiters = [asyncio.ensure_future(session.refresh_requested.wait()),
+                       asyncio.ensure_future(inbox.pending.wait())]
             try:
-                await asyncio.wait_for(session.refresh_requested.wait(), timeout=TICK)
-            except asyncio.TimeoutError:
-                pass
+                await asyncio.wait(waiters, timeout=TICK, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for w in waiters:
+                    w.cancel()
         if tray_state is not None and tray_state.paused and client.is_connected:
             # Menu-bar Disconnect: macOS keeps the board's HID (keyboard) link up on
             # its own, so our GATT disconnect alone leaves the board showing the
@@ -1175,6 +1329,7 @@ async def connect_and_run(target, stop_event: asyncio.Event, tray_state=None) ->
             # {"ok": false} beat flips it to the idle screen immediately.
             await session.write_payload({"ok": False})
     finally:
+        inbox_task.cancel()
         try:
             await client.disconnect()
         except BleakError:
@@ -1275,6 +1430,9 @@ async def main(tray_state=None) -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in ("--install-hooks", "--remove-hooks"):
+        print(install_claude_hooks(remove=sys.argv[1] == "--remove-hooks"))
+        sys.exit(0)
     try:
         if sys.platform == "darwin" and read_menubar_setting() == "on":
             try:

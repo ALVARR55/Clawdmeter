@@ -6,6 +6,7 @@
 #include "clawd_still.h"
 #include "icons.h"
 #include "hal/board_caps.h"
+#include "idle.h"
 
 // Custom fonts (scaled for 314 PPI, ~1.9x from original 165 PPI)
 LV_FONT_DECLARE(font_tiempos_56);
@@ -340,6 +341,8 @@ static void format_reset_time(int mins, char* buf, size_t len) {
 
 // Forward decls — callbacks defined near ui_show_screen below
 static void global_click_cb(lv_event_t* e);
+static void build_attention_banner(void);
+static void attn_tick(void);
 
 static lv_obj_t* make_panel(lv_obj_t* parent, int x, int y, int w, int h) {
     lv_obj_t* panel = lv_obj_create(parent);
@@ -617,6 +620,8 @@ void ui_init(void) {
         lv_obj_del(battery_img);
         battery_img = nullptr;
     }
+
+    build_attention_banner();   // top layer; hidden until a Claude Code event
 }
 
 void ui_update(const UsageData* data) {
@@ -724,6 +729,7 @@ static void update_view_state(void) {
 }
 
 void ui_tick_anim(void) {
+    attn_tick();                                // banner upkeep on any screen
     if (current_screen != SCREEN_USAGE) return;
     update_view_state();
     if (view_state == 1) splash_mini_tick();   // animate the sleeping creature on the idle screen
@@ -782,6 +788,94 @@ void ui_tick_anim(void) {
 }
 
 static screen_t prev_non_splash_screen = SCREEN_USAGE;
+
+// --- Attention screens ("Done" / "Claude needs you") -------------------------
+// Triggered by Claude Code hooks through the daemon. The splash engine plays a
+// held animation underneath; this banner (on LVGL's top layer, so it covers
+// any screen) names the event and takes the dismissing tap.
+static bool      attn_active = false;
+static screen_t  attn_return_screen = SCREEN_USAGE;
+static lv_obj_t* attn_banner = nullptr;
+static lv_obj_t* attn_title  = nullptr;
+static lv_obj_t* attn_sub    = nullptr;
+// On PSRAM-less boards the splash draws straight to the panel and its first
+// frame after a (re)show is a full-screen repaint, which paints over the
+// LVGL banner. Keep re-invalidating the banner briefly after each show so
+// LVGL lays it back on top once that repaint has happened.
+static uint32_t  attn_redraw_until_ms = 0;
+
+static void attn_click_cb(lv_event_t* e) { (void)e; ui_clear_attention(); }
+
+static void build_attention_banner(void) {
+    attn_banner = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(attn_banner, L.scr_w, LV_SIZE_CONTENT);
+    lv_obj_set_pos(attn_banner, 0, 0);
+    lv_obj_set_style_bg_color(attn_banner, COL_BG, 0);
+    lv_obj_set_style_bg_opa(attn_banner, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(attn_banner, 0, 0);
+    lv_obj_set_style_radius(attn_banner, 0, 0);
+    lv_obj_set_style_pad_top(attn_banner, 18, 0);
+    lv_obj_set_style_pad_bottom(attn_banner, 14, 0);
+    lv_obj_set_style_pad_hor(attn_banner, 20, 0);
+    lv_obj_clear_flag(attn_banner, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(attn_banner, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(attn_banner, attn_click_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_set_flex_flow(attn_banner, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(attn_banner, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(attn_banner, 4, 0);
+
+    attn_title = lv_label_create(attn_banner);
+    lv_obj_set_style_text_font(attn_title, L.bt_status_font, 0);
+    lv_obj_set_style_text_color(attn_title, COL_TEXT, 0);
+    lv_label_set_text(attn_title, "");
+
+    attn_sub = lv_label_create(attn_banner);
+    lv_obj_set_style_text_font(attn_sub, L.bt_device_font, 0);
+    lv_obj_set_style_text_color(attn_sub, COL_DIM, 0);
+    lv_label_set_text(attn_sub, "tap to dismiss");
+
+    lv_obj_add_flag(attn_banner, LV_OBJ_FLAG_HIDDEN);
+}
+
+void ui_show_attention(attention_t kind) {
+    if (!attn_banner) return;
+    idle_note_activity();                       // wake / un-dim the panel
+    if (!attn_active) {
+        attn_active = true;
+        attn_return_screen = current_screen;    // where a tap brings us back
+    }
+    splash_hold(true);                          // keep looping, no auto-rotation
+    ui_show_screen(SCREEN_SPLASH);
+    if (kind == ATTENTION_DONE) {
+        splash_play("waving");
+        lv_label_set_text(attn_title, "Done");
+        lv_obj_set_style_text_color(attn_title, COL_GREEN, 0);
+        lv_label_set_text(attn_sub, "Claude Code finished");
+    } else {
+        splash_play("laptop");      // reserved for this screen (not in the splash rotation)
+        lv_label_set_text(attn_title, "Claude needs you");
+        lv_obj_set_style_text_color(attn_title, COL_AMBER, 0);
+        lv_label_set_text(attn_sub, "Tap to dismiss");
+    }
+    lv_obj_clear_flag(attn_banner, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(attn_banner);
+    attn_redraw_until_ms = lv_tick_get() + 2000;
+}
+
+static void attn_tick(void) {
+    if (attn_active && attn_banner && lv_tick_get() < attn_redraw_until_ms)
+        lv_obj_invalidate(attn_banner);
+}
+
+void ui_clear_attention(void) {
+    if (!attn_active) return;
+    attn_active = false;
+    if (attn_banner) lv_obj_add_flag(attn_banner, LV_OBJ_FLAG_HIDDEN);
+    splash_hold(false);
+    ui_show_screen(attn_return_screen);         // splash re-picks by rate if that's where we were
+}
+
+bool ui_attention_active(void) { return attn_active; }
 static void apply_battery_visibility(void) {
     if (!battery_img) return;
     if (current_screen == SCREEN_SPLASH) lv_obj_add_flag(battery_img, LV_OBJ_FLAG_HIDDEN);
@@ -790,6 +884,7 @@ static void apply_battery_visibility(void) {
 
 static void global_click_cb(lv_event_t* e) {
     (void)e;
+    if (attn_active) { ui_clear_attention(); return; }   // a tap dismisses, never toggles
     if (current_screen == SCREEN_SPLASH) ui_show_screen(prev_non_splash_screen);
     else                                  ui_show_screen(SCREEN_SPLASH);
 }

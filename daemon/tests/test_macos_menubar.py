@@ -205,3 +205,60 @@ def test_device_name_matching_accepts_owner_suffixes_only():
     assert not mod.is_our_device_name("clawdmeter")
     assert not mod.is_our_device_name("")
     assert not mod.is_our_device_name(None)
+
+
+# --- Claude Code events (hooks -> file -> board) -----------------------------
+
+def test_event_inbox_ignores_history_and_reports_fresh_words(tmp_path):
+    f = tmp_path / "event"
+    f.write_text("done")
+    inbox = mod.EventInbox(f)                   # pre-existing content is history
+    assert inbox.check() is None and not inbox.pending.is_set()
+    import os, time as _t
+    _t.sleep(0.01); f.write_text("needs"); os.utime(f, None)
+    assert inbox.check() == "needs" and inbox.pending.is_set()
+    assert inbox.take() == "needs" and not inbox.pending.is_set()
+    assert inbox.take() is None
+
+
+def test_event_inbox_rejects_unknown_words_and_stale_files(tmp_path):
+    import os
+    f = tmp_path / "event"
+    inbox = mod.EventInbox(f)                   # file absent -> seen = 0
+    f.write_text("bogus")
+    assert inbox.check() is None
+    f.write_text("done")
+    old = 1_000_000_000
+    os.utime(f, (old, old))                     # written ages ago
+    assert inbox.check(now=old + mod.EVENT_MAX_AGE_S + 1) is None
+
+
+def test_install_hooks_is_idempotent_and_keeps_other_hooks(tmp_path):
+    import json
+    p = tmp_path / "settings.json"
+    p.write_text(json.dumps({"model": "opus", "hooks": {
+        "Stop": [{"hooks": [{"type": "command", "command": "echo someone-else"}]}]}}))
+    mod.install_claude_hooks(p)
+    mod.install_claude_hooks(p)                 # second run: no duplicates
+    d = json.loads(p.read_text())
+    assert d["model"] == "opus"
+    stops = d["hooks"]["Stop"]
+    assert len(stops) == 2 and stops[0]["hooks"][0]["command"] == "echo someone-else"
+    assert mod.HOOK_TAG in stops[1]["hooks"][0]["command"] and "printf done" in stops[1]["hooks"][0]["command"]
+    assert d["hooks"]["Notification"][0]["matcher"] == "permission_prompt|idle_prompt|agent_needs_input"
+    assert "printf clear" in d["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+    mod.install_claude_hooks(p, remove=True)
+    d = json.loads(p.read_text())
+    assert d["hooks"] == {"Stop": [{"hooks": [{"type": "command", "command": "echo someone-else"}]}]}
+
+
+def test_install_hooks_refuses_invalid_json(tmp_path):
+    p = tmp_path / "settings.json"; p.write_text("{not json")
+    assert "not touching" in mod.install_claude_hooks(p)
+    assert p.read_text() == "{not json"
+
+
+def test_hook_command_is_a_safe_one_liner():
+    cmd = mod._hook_cmd("done")
+    assert cmd.startswith("mkdir -p") and cmd.endswith('/event"') and "$HOME" in cmd
+    assert mod.EVENT_FILE.name == "event"

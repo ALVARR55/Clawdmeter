@@ -21,6 +21,13 @@ void splash_hide(void);
 // trigger a re-pick when the rate group changes mid-display.
 void splash_pick_for_current_rate(void);
 
+// Attention mode: play the named animation and keep looping it (no auto
+// rotation, no rate re-pick) until splash_hold(false). Used by the
+// "Done" / "Claude needs you" screens; returns false if the name is unknown.
+bool splash_play(const char *anim_name);
+void splash_hold(bool hold);
+bool splash_is_held(void);
+
 // True when splash is currently rendering (used to gate re-picks).
 bool splash_is_active(void);
 

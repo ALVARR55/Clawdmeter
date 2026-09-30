@@ -106,6 +106,14 @@ static bool parse_json(const char* json, UsageData* out) {
         return false;
     }
 
+    // Claude Code hook events ride along with (or without) usage data. An
+    // event-only payload {"ev":"done"} must not zero the numbers on screen.
+    strlcpy(out->event, doc["ev"] | "", sizeof(out->event));
+    out->has_usage = doc["s"].is<float>() || doc["s"].is<int>();
+    if (!out->has_usage) {
+        out->valid = true;
+        return true;
+    }
     out->session_pct = doc["s"] | 0.0f;
     out->session_reset_mins = doc["sr"] | -1;
     out->weekly_pct = doc["w"] | 0.0f;
@@ -392,7 +400,20 @@ void loop() {
     check_serial_cmd();
 
     if (ble_has_data()) {
-        if (parse_json(ble_get_data(), &usage)) {
+        UsageData incoming = usage;           // keep the last good numbers for event-only payloads
+        if (parse_json(ble_get_data(), &incoming)) {
+            // Claude Code finished a turn / is waiting for the user (daemon hooks).
+            if (incoming.event[0]) {
+                Serial.printf("event: %s\n", incoming.event);
+                if (strcmp(incoming.event, "done") == 0)       ui_show_attention(ATTENTION_DONE);
+                else if (strcmp(incoming.event, "needs") == 0) ui_show_attention(ATTENTION_NEEDS);
+                else if (strcmp(incoming.event, "clear") == 0) ui_clear_attention();
+            }
+            if (!incoming.has_usage) {
+                ble_send_ack();
+            } else {
+            incoming.event[0] = '\0';
+            usage = incoming;
             int g_before = usage_rate_group();
             bool session_reset = usage_rate_sample(usage.session_pct);
             int g_after = usage_rate_group();
@@ -410,6 +431,7 @@ void loop() {
             }
             ui_update(&usage);
             ble_send_ack();
+            }
         } else {
             ble_send_nack();
         }

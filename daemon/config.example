@@ -34,6 +34,14 @@
 #   off = silent (default)
 #   on  = chime through the board speaker (boards with audio: AMOLED-2.16 / 1.8)
 chime = off
+
+# Claude Code events on the board (macOS daemon). Claude Code hooks (installed
+# by clawdmeter-setup / install-mac.sh, or `clawdmeter-daemon --install-hooks`)
+# tell the daemon when Claude finished a turn or is waiting for you; the board
+# then shows "Done" / "Claude needs you" until you tap it.
+#   on  = forward events (default)
+#   off = ignore them
+events = on
 # Show a clock on the Usage screen, in place of the "Usage" title.
 #   off  = no clock; the screen keeps showing "Usage" (default)
 #   auto = show the clock, auto-detecting 12h/24h from this machine's settings
