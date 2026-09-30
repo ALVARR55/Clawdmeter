@@ -28,6 +28,11 @@ bool splash_play(const char *anim_name);
 void splash_hold(bool hold);
 bool splash_is_held(void);
 
+// Call from the LVGL flush callback: LVGL painted part of the panel. On
+// direct-draw boards the splash repaints its art on the next tick (no-op on
+// canvas boards, where LVGL composes the splash itself).
+void splash_note_overdraw(void);
+
 // True when splash is currently rendering (used to gate re-picks).
 bool splash_is_active(void);
 

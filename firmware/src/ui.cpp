@@ -342,7 +342,6 @@ static void format_reset_time(int mins, char* buf, size_t len) {
 // Forward decls — callbacks defined near ui_show_screen below
 static void global_click_cb(lv_event_t* e);
 static void build_attention_banner(void);
-static void attn_tick(void);
 
 static lv_obj_t* make_panel(lv_obj_t* parent, int x, int y, int w, int h) {
     lv_obj_t* panel = lv_obj_create(parent);
@@ -729,7 +728,6 @@ static void update_view_state(void) {
 }
 
 void ui_tick_anim(void) {
-    attn_tick();                                // banner upkeep on any screen
     if (current_screen != SCREEN_USAGE) return;
     update_view_state();
     if (view_state == 1) splash_mini_tick();   // animate the sleeping creature on the idle screen
@@ -798,11 +796,6 @@ static screen_t  attn_return_screen = SCREEN_USAGE;
 static lv_obj_t* attn_banner = nullptr;
 static lv_obj_t* attn_title  = nullptr;
 static lv_obj_t* attn_sub    = nullptr;
-// On PSRAM-less boards the splash draws straight to the panel and its first
-// frame after a (re)show is a full-screen repaint, which paints over the
-// LVGL banner. Keep re-invalidating the banner briefly after each show so
-// LVGL lays it back on top once that repaint has happened.
-static uint32_t  attn_redraw_until_ms = 0;
 
 static void attn_click_cb(lv_event_t* e) { (void)e; ui_clear_attention(); }
 
@@ -859,12 +852,6 @@ void ui_show_attention(attention_t kind) {
     }
     lv_obj_clear_flag(attn_banner, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(attn_banner);
-    attn_redraw_until_ms = lv_tick_get() + 2000;
-}
-
-static void attn_tick(void) {
-    if (attn_active && attn_banner && lv_tick_get() < attn_redraw_until_ms)
-        lv_obj_invalidate(attn_banner);
 }
 
 void ui_clear_attention(void) {

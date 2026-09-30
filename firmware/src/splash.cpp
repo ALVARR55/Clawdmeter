@@ -306,21 +306,29 @@ static void render_frame(const uint8_t *cells, const uint16_t *palette) {
     bool full = force_full || !prev_valid || palette != prev_palette;
     force_full = false;
 
-    int gx0 = 0, gy0 = 0, gx1 = GRID - 1, gy1 = GRID - 1;
-    if (!full) {                                     // bounding box of changed cells
-        gx0 = GRID; gy0 = GRID; gx1 = -1; gy1 = -1;
-        for (int gy = 0; gy < GRID; gy++)
-            for (int gx = 0; gx < GRID; gx++)
-                if (cells[gy * GRID + gx] != prev_cells[gy * GRID + gx]) {
-                    if (gx < gx0) gx0 = gx;
-                    if (gx > gx1) gx1 = gx;
-                    if (gy < gy0) gy0 = gy;
-                    if (gy > gy1) gy1 = gy;
-                }
-        if (gx1 < 0) return;                         // identical frame, nothing to do
+    // Bounding box to blit. Incremental: cells that changed since the last
+    // frame. Full: every cell that holds art now or held art last frame — NOT
+    // the whole stage. LVGL owns the rest of the panel (the black it paints on
+    // screen changes, the attention banner on the top layer), and painting the
+    // empty stage over it would wipe those; conversely LVGL painting over the
+    // art is repaired by splash_note_overdraw() forcing this path.
+    int gx0 = GRID, gy0 = GRID, gx1 = -1, gy1 = -1;
+    for (int gy = 0; gy < GRID; gy++)
+        for (int gx = 0; gx < GRID; gx++) {
+            const int i = gy * GRID + gx;
+            const bool hit = full ? (cells[i] != 0 || (prev_valid && prev_cells[i] != 0))
+                                  : (cells[i] != prev_cells[i]);
+            if (!hit) continue;
+            if (gx < gx0) gx0 = gx;
+            if (gx > gx1) gx1 = gx;
+            if (gy < gy0) gy0 = gy;
+            if (gy > gy1) gy1 = gy;
+        }
+    if (gx1 < 0) {                                   // nothing to paint (identical or empty stage)
+        if (!full) return;
+    } else {
+        blit_cells(cells, palette, gx0, gy0, gx1, gy1);
     }
-
-    blit_cells(cells, palette, gx0, gy0, gx1, gy1);
 
     memcpy(prev_cells, cells, GRID * GRID);
     prev_palette = palette;
@@ -884,6 +892,15 @@ void splash_pick_for_current_rate(void) {
 }
 
 bool splash_is_active(void) { return active; }
+
+void splash_note_overdraw(void) {
+#if SPLASH_DIRECT_DRAW
+    // LVGL just flushed pixels while we're on screen (a screen change's black
+    // fill, the attention banner…). Whatever it covered of the art is gone;
+    // repaint the art's cells on the next tick.
+    if (active) force_full = true;
+#endif
+}
 
 void splash_show(void) {
     if (!held) splash_pick_for_current_rate();   // select animation; direct path defers the draw
